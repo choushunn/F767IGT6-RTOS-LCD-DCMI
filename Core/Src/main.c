@@ -31,6 +31,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "app_tasks.h"
+#include "uart/app_uart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -108,6 +109,30 @@ int main(void)
   /* LED0(DS0/PB1)、LED1(DS1/PB0) 低电平点亮，上电先熄灭；LCD 背光 PB5 高电平点亮 */
   HAL_GPIO_WritePin(GPIOB, LED0_DS0_Pin | LED1_DS1_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(LCD_BL_GPIO_Port, LCD_BL_Pin, GPIO_PIN_SET);
+
+  /* 临时自检：关闭图层，LTDC 直接输出纯色背景（绿->红->蓝各 1 秒），
+     完全不经过 SDRAM，用于判断面板/LTDC 时序链路是否正常 */
+  {
+    static const uint32_t s_testColors[3] = { 0x0000FF00U, 0x00FF0000U, 0x000000FFU };
+    uint32_t i;
+
+    __HAL_LTDC_LAYER_DISABLE(&hltdc, LTDC_LAYER_1);
+    for (i = 0U; i < 3U; i++)
+    {
+      LTDC->BCCR = s_testColors[i];
+      __HAL_LTDC_RELOAD_IMMEDIATE_CONFIG(&hltdc);
+      HAL_Delay(1000U);
+    }
+
+    /* 恢复背景色并重新使能图层 */
+    LTDC->BCCR = 0x00000000U;
+    __HAL_LTDC_LAYER_ENABLE(&hltdc, LTDC_LAYER_1);
+    __HAL_LTDC_RELOAD_IMMEDIATE_CONFIG(&hltdc);
+
+    AppUart_Printf("[BOOT] LTDC color test done, PLLSAICFGR=0x%08lX DCKCFGR1=0x%08lX\r\n",
+                   (unsigned long)RCC->PLLSAICFGR,
+                   (unsigned long)RCC->DCKCFGR1);
+  }
 
   /* 创建应用任务并启动调度器，正常情况下不再返回 */
   AppTasks_Init();
