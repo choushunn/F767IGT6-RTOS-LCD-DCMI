@@ -21,7 +21,7 @@
 #include "ltdc.h"
 
 /* USER CODE BEGIN 0 */
-
+#include "camera/app_camera.h" /* CAM_FB0_ADDR / CAM_IMG_W / CAM_IMG_H */
 /* USER CODE END 0 */
 
 LTDC_HandleTypeDef hltdc;
@@ -61,8 +61,9 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
+  /* 图层 0 只覆盖左栏 0~320（LVGL 状态面板），右栏交给图层 2 的相机画面 */
   pLayerCfg.WindowX0 = 0;
-  pLayerCfg.WindowX1 = 800;
+  pLayerCfg.WindowX1 = 320;
   pLayerCfg.WindowY0 = 0;
   pLayerCfg.WindowY1 = 480;
   pLayerCfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
@@ -71,7 +72,7 @@ void MX_LTDC_Init(void)
   pLayerCfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
   pLayerCfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
   pLayerCfg.FBStartAdress = 0xC0000000;
-  pLayerCfg.ImageWidth = 800;
+  pLayerCfg.ImageWidth = 320;
   pLayerCfg.ImageHeight = 480;
   pLayerCfg.Backcolor.Blue = 0;
   pLayerCfg.Backcolor.Green = 0;
@@ -80,25 +81,31 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  pLayerCfg1.WindowX0 = 0;
-  pLayerCfg1.WindowX1 = 0;
+  /* 第二图层：右侧相机窗口 x 320~800 / y 0~480，480x480 RGB565。
+   * 混合因子必须为 PAxCA 且 Alpha0=0，窗口外默认色 alpha=0 才能透出图层 0（CA 模式会盖黑左栏）。
+   * 首帧写满前不使能，由 app_camera.c 在首帧完成后打开。 */
+  pLayerCfg1.WindowX0 = 320;
+  pLayerCfg1.WindowX1 = 800;
   pLayerCfg1.WindowY0 = 0;
-  pLayerCfg1.WindowY1 = 0;
-  pLayerCfg1.PixelFormat = LTDC_PIXEL_FORMAT_ARGB8888;
-  pLayerCfg1.Alpha = 0;
+  pLayerCfg1.WindowY1 = 480;
+  pLayerCfg1.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
+  pLayerCfg1.Alpha = 255;
   pLayerCfg1.Alpha0 = 0;
-  pLayerCfg1.BlendingFactor1 = LTDC_BLENDING_FACTOR1_CA;
-  pLayerCfg1.BlendingFactor2 = LTDC_BLENDING_FACTOR2_CA;
-  pLayerCfg1.FBStartAdress = 0;
-  pLayerCfg1.ImageWidth = 0;
-  pLayerCfg1.ImageHeight = 0;
+  pLayerCfg1.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
+  pLayerCfg1.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
+  pLayerCfg1.FBStartAdress = CAM_FB0_ADDR;
+  pLayerCfg1.ImageWidth = CAM_IMG_W;
+  pLayerCfg1.ImageHeight = CAM_IMG_H;
   pLayerCfg1.Backcolor.Blue = 0;
   pLayerCfg1.Backcolor.Green = 0;
   pLayerCfg1.Backcolor.Red = 0;
-  if (HAL_LTDC_ConfigLayer(&hltdc, &pLayerCfg1, 1) != HAL_OK)
+  if (HAL_LTDC_ConfigLayer(&hltdc, &pLayerCfg1, LTDC_LAYER_2) != HAL_OK)
   {
     Error_Handler();
   }
+  /* HAL_LTDC_ConfigLayer 总会置 LEN，这里清掉并请求重载，避免显示未初始化的帧缓冲 */
+  LTDC_Layer2->CR &= ~LTDC_LxCR_LEN;
+  __HAL_LTDC_VERTICAL_BLANKING_RELOAD_CONFIG(&hltdc);
   /* USER CODE BEGIN LTDC_Init 2 */
 
   /* USER CODE END LTDC_Init 2 */

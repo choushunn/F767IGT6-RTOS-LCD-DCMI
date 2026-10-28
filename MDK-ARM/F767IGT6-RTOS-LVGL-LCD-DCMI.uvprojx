@@ -1098,6 +1098,11 @@
               <FilePath>../App/lvgl/app_lvgl.c</FilePath>
             </File>
             <File>
+              <FileName>app_font_cn_14.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/lvgl/app_font_cn_14.c</FilePath>
+            </File>
+            <File>
               <FileName>touch_detect.c</FileName>
               <FileType>1</FileType>
               <FilePath>../App/touch/touch_detect.c</FilePath>
@@ -1116,6 +1121,61 @@
               <FileName>touch_pins.h</FileName>
               <FileType>5</FileType>
               <FilePath>../App/touch/touch_pins.h</FilePath>
+            </File>
+            <File>
+              <FileName>app_camera.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/camera/app_camera.c</FilePath>
+            </File>
+            <File>
+              <FileName>camera_util.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/camera/camera_util.c</FilePath>
+            </File>
+            <File>
+              <FileName>sccb.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/camera/sccb.c</FilePath>
+            </File>
+            <File>
+              <FileName>pcf8574.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/camera/pcf8574.c</FilePath>
+            </File>
+            <File>
+              <FileName>ov5640.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/camera/ov5640.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_camera.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/app_camera.h</FilePath>
+            </File>
+            <File>
+              <FileName>camera_util.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/camera_util.h</FilePath>
+            </File>
+            <File>
+              <FileName>sccb.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/sccb.h</FilePath>
+            </File>
+            <File>
+              <FileName>pcf8574.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/pcf8574.h</FilePath>
+            </File>
+            <File>
+              <FileName>ov5640.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/ov5640.h</FilePath>
+            </File>
+            <File>
+              <FileName>ov5640cfg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/camera/ov5640cfg.h</FilePath>
             </File>
           </Files>
         </Group>

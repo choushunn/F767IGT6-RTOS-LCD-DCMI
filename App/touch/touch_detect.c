@@ -301,6 +301,11 @@ uint8_t Touch_Detect(void)
   return 1U;
 }
 
+uint8_t Touch_IsReady(void)
+{
+  return s_touchOk;
+}
+
 uint8_t Touch_Scan(uint16_t *x, uint16_t *y)
 {
   uint8_t status = 0U;

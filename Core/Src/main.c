@@ -105,8 +105,23 @@ int main(void)
   MX_QUADSPI_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  /* LED0(DS0/PB1)、LED1(DS1/PB0) 低电平点亮，上电先熄灭；LCD 背光 PB5 高电平点亮 */
+  /* LED0(DS0/PB1)、LED1(DS1/PB0) 低电平点亮，上电先熄灭 */
   HAL_GPIO_WritePin(GPIOB, LED0_DS0_Pin | LED1_DS1_Pin, GPIO_PIN_SET);
+
+  /* 清屏：SDRAM 上电/复位后内容不确定，而 LTDC 已在扫描 0xC0000000，
+   * 若直接点背光会看到上一次运行的残留画面。先把 LVGL 图层 0 的
+   * 800x480x2B 帧缓冲刷成黑色，再打开背光 */
+  {
+    uint32_t *fb = (uint32_t *)0xC0000000UL;
+    uint32_t i;
+
+    for (i = 0U; i < (800U * 480U / 2U); i++)
+    {
+      fb[i] = 0x00000000U;
+    }
+  }
+
+  /* LCD 背光 PB5 高电平点亮，必须在清屏之后 */
   HAL_GPIO_WritePin(LCD_BL_GPIO_Port, LCD_BL_Pin, GPIO_PIN_SET);
 
   /* 创建应用任务并启动调度器，正常情况下不再返回 */
