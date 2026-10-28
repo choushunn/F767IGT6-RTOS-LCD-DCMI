@@ -42,6 +42,7 @@ App/
   app_tasks.c/.h           统一任务创建入口 AppTasks_Init()
   led/app_led.c/.h         LED0（PB1）500ms 翻转任务
   uart/app_uart.c/.h       USART1 调试打印任务 AppUart_Printf()
+  touch/touch_detect.c/.h  GT9xxx 电容触摸（软件 I2C）+ LVGL 指针设备接入
   lvgl/app_lvgl.c/.h       LVGL 刷新任务与基础测试界面
 Docs/                      移植方案与硬件参考资料
 ```
@@ -60,6 +61,7 @@ Docs/                      移植方案与硬件参考资料
   - 右侧：200ms 刷新一次的实时曲线（40 点）与圆弧指示器
   - 底部：FreeRTOS 剩余堆与 LVGL 内存池状态
 - LED0（DS0 / PB1）以 500ms 周期闪烁（LED 低电平点亮）。
+- 触摸屏（GT9xxx，软件 I2C，SCL=PH6 / SDA=PI3 / RST=PI8 / INT=PH7）探测成功后，界面开关、按钮、滑块可点击/拖动。
 - USART1（PA9/PA10，115200 8N1）输出 `[LVGL] init done, free heap = ...`，并可用于各模块调试打印。
 
 ## 5. 关键配置
@@ -72,9 +74,8 @@ Docs/                      移植方案与硬件参考资料
 
 ## 6. 后续阶段
 
-- 触摸驱动（GT1151，软件 I2C）接入 `LVGL/lv_port_indev.c`。
 - DCMI 摄像头采集与显示（帧缓冲需与 LVGL 缓冲错开分配）。
-- LVGL 界面模块化与更复杂的 UI 示例。
+- LVGL 界面模块化、中文字库与更复杂的 UI 示例。
 
 ## 7. 参考资料
 

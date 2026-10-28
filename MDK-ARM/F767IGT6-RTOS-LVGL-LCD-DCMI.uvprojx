@@ -1098,9 +1098,24 @@
               <FilePath>../App/lvgl/app_lvgl.c</FilePath>
             </File>
             <File>
+              <FileName>touch_detect.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/touch/touch_detect.c</FilePath>
+            </File>
+            <File>
               <FileName>app_config.h</FileName>
               <FileType>5</FileType>
               <FilePath>../App/app_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>touch_detect.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/touch/touch_detect.h</FilePath>
+            </File>
+            <File>
+              <FileName>touch_pins.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>../App/touch/touch_pins.h</FilePath>
             </File>
           </Files>
         </Group>
