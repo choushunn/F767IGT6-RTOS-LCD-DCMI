@@ -265,13 +265,18 @@ static void AppLvgl_Task(void *param)
 {
   (void)param;
 
+  AppUart_Printf("[LVGL] task start\r\n");
+
   lv_init();                              /* 仅在本任务内调用一次 */
+  AppUart_Printf("[LVGL] lv_init done\r\n");
+
   lv_tick_set_cb(app_lvgl_tick_get_ms);   /* 绑定 FreeRTOS SysTick */
   lv_port_disp_init();
+  AppUart_Printf("[LVGL] display ready\r\n");
+
   lv_port_indev_init();
   app_lvgl_ui_create();
-
-  AppUart_Printf("[LVGL] init done, free heap = %u bytes\r\n",
+  AppUart_Printf("[LVGL] ui ready, free heap = %u bytes\r\n",
                  (unsigned int)xPortGetFreeHeapSize());
 
   for (;;)
@@ -283,10 +288,14 @@ static void AppLvgl_Task(void *param)
 
 void AppLvgl_TaskCreate(void)
 {
-  xTaskCreate(AppLvgl_Task,
-              "LVGL",
-              APP_LVGL_TASK_STACK_SIZE,
-              NULL,
-              APP_LVGL_TASK_PRIORITY,
-              NULL);
+  BaseType_t ret = xTaskCreate(AppLvgl_Task,
+                               "LVGL",
+                               APP_LVGL_TASK_STACK_SIZE,
+                               NULL,
+                               APP_LVGL_TASK_PRIORITY,
+                               NULL);
+  if (ret != pdPASS)
+  {
+    AppUart_Printf("[LVGL] task create FAILED\r\n");
+  }
 }
