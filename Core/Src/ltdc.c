@@ -45,15 +45,15 @@ void MX_LTDC_Init(void)
   hltdc.Init.VSPolarity = LTDC_VSPOLARITY_AL;
   hltdc.Init.DEPolarity = LTDC_DEPOLARITY_AL;
   hltdc.Init.PCPolarity = LTDC_PCPOLARITY_IPC;
-  /* ATK-7016 7 寸 RGB 屏：1024x600，HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12 */
-  hltdc.Init.HorizontalSync = 19;
-  hltdc.Init.VerticalSync = 2;
-  hltdc.Init.AccumulatedHBP = 159;
-  hltdc.Init.AccumulatedVBP = 22;
-  hltdc.Init.AccumulatedActiveW = 1183;
-  hltdc.Init.AccumulatedActiveH = 622;
-  hltdc.Init.TotalWidth = 1343;
-  hltdc.Init.TotalHeigh = 634;
+  /* ATK-7084 7 寸 RGB 屏：800x480，HSW=1/HBP=46/HFP=210，VSW=1/VBP=23/VFP=22 */
+  hltdc.Init.HorizontalSync = 0;
+  hltdc.Init.VerticalSync = 0;
+  hltdc.Init.AccumulatedHBP = 46;
+  hltdc.Init.AccumulatedVBP = 23;
+  hltdc.Init.AccumulatedActiveW = 846;
+  hltdc.Init.AccumulatedActiveH = 503;
+  hltdc.Init.TotalWidth = 1056;
+  hltdc.Init.TotalHeigh = 525;
   hltdc.Init.Backcolor.Blue = 0;
   hltdc.Init.Backcolor.Green = 0;
   hltdc.Init.Backcolor.Red = 0;
@@ -62,17 +62,17 @@ void MX_LTDC_Init(void)
     Error_Handler();
   }
   pLayerCfg.WindowX0 = 0;
-  pLayerCfg.WindowX1 = 1024;
+  pLayerCfg.WindowX1 = 800;
   pLayerCfg.WindowY0 = 0;
-  pLayerCfg.WindowY1 = 600;
+  pLayerCfg.WindowY1 = 480;
   pLayerCfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
   pLayerCfg.Alpha = 255;
   pLayerCfg.Alpha0 = 0;
   pLayerCfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
   pLayerCfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
   pLayerCfg.FBStartAdress = 0xC0000000;
-  pLayerCfg.ImageWidth = 1024;
-  pLayerCfg.ImageHeight = 600;
+  pLayerCfg.ImageWidth = 800;
+  pLayerCfg.ImageHeight = 480;
   pLayerCfg.Backcolor.Blue = 0;
   pLayerCfg.Backcolor.Green = 0;
   pLayerCfg.Backcolor.Red = 0;
@@ -119,9 +119,9 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* ltdcHandle)
   /** Initializes the peripherals clock
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LTDC;
-    /* 像素时钟 45MHz：25MHz/25 * 360 / 2 / 4 */
-    PeriphClkInitStruct.PLLSAI.PLLSAIN = 360;
-    PeriphClkInitStruct.PLLSAI.PLLSAIR = 2;
+    /* 像素时钟 33MHz：25MHz/25 * 396 / 3 / 4 */
+    PeriphClkInitStruct.PLLSAI.PLLSAIN = 396;
+    PeriphClkInitStruct.PLLSAI.PLLSAIR = 3;
     PeriphClkInitStruct.PLLSAI.PLLSAIQ = 2;
     PeriphClkInitStruct.PLLSAI.PLLSAIP = RCC_PLLSAIP_DIV2;
     PeriphClkInitStruct.PLLSAIDivQ = 1;

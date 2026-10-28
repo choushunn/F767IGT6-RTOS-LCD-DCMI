@@ -7,8 +7,8 @@ STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的显示框架：LTDC 并口 RGB
 | 项目 | 说明 |
 |------|------|
 | 主控 | STM32F767IGT6（Cortex-M7，216MHz，HSE 25MHz） |
-| 显示 | ATK-7016 7 寸 RGB 屏，1024x600，RGB565，LTDC 像素时钟 45MHz（PLLSAI 360/2/4） |
-| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB），1024x600x2 = 1170KB |
+| 显示 | ATK-7084 7 寸 RGB 屏，800x480，RGB565，LTDC 像素时钟 33MHz（PLLSAI 396/3/4） |
+| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB），800x480x2 = 750KB |
 | RTOS | FreeRTOS Kernel V11.3.1，`portable/GCC/ARM_CM7/r0p1`，heap_4 |
 | GUI | LVGL v9.6.0（lite），`LV_OS_NONE` 单任务内联渲染，DIRECT 单缓冲 |
 | 编译器 | Keil MDK AC6 / armclang（6.24） |
@@ -66,7 +66,7 @@ Docs/                      移植方案与硬件参考资料
 
 - **MPU**：FMC 数据区 `0x60000000`（64MB）全访问；SDRAM `0xC0000000`（32MB）全访问且**非缓存、可共享**，保证 CPU 与 LTDC/DMA2D 数据一致。FMC/QSPI 寄存器区（`0xA0000000`）走默认 Device 映射，切勿配置为无访问权限，否则 `MX_FMC_Init()` 会触发 MemManage 异常。
 - **SDRAM 上电序列**：`HAL_SDRAM_Init()` 只配置控制器，`Core/Src/fmc.c` 的 `USER CODE 2` 区补齐 CLK_ENABLE → PALL → 8 次 AUTOREFRESH → LOAD_MODE(`0x230`) → 刷新计数 824（SDCLK 108MHz）。该序列必须先于 `MX_LTDC_Init()`。
-- **LTDC**：时序 1024x600（HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12），图层 0 为 RGB565、帧缓冲 `0xC0000000`。
+- **LTDC**：时序 800x480（HSW=1/HBP=46/HFP=210，VSW=1/VBP=23/VFP=22），像素时钟 33MHz，图层 0 为 RGB565、帧缓冲 `0xC0000000`。
 - **FreeRTOS 中断桥接**：`Core/Src/stm32f7xx_it.c` 中 SVC→`vPortSVCHandler`、PendSV→`xPortPendSVHandler`、SysTick→`xPortSysTickHandler`，三者缺一任务即无法切换。
 - **DMA2D**：`MX_DMA2D_Init()` 已按 RGB565 配置；LVGL 侧 `LV_USE_DRAW_DMA2D` 当前为 0，确认显示链路正常后可置 1 并重新编译。
 

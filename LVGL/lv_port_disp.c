@@ -2,9 +2,9 @@
 
 #include "lvgl.h"
 
-/* ATK-7016 7 寸 RGB 屏：1024x600，RGB565 */
-#define LV_PORT_DISP_HOR_RES   1024
-#define LV_PORT_DISP_VER_RES   600
+/* ATK-7084 7 寸 RGB 屏：800x480，RGB565 */
+#define LV_PORT_DISP_HOR_RES   800
+#define LV_PORT_DISP_VER_RES   480
 
 /* 帧缓冲位于外部 SDRAM（FMC Bank1 基址），与 LTDC 图层 0 使用同一地址 */
 #define LV_PORT_DISP_FB_ADDR   ( (void *)0xC0000000UL )

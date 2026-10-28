@@ -31,7 +31,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "app_tasks.h"
-#include "uart/app_uart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,56 +108,6 @@ int main(void)
   /* LED0(DS0/PB1)、LED1(DS1/PB0) 低电平点亮，上电先熄灭；LCD 背光 PB5 高电平点亮 */
   HAL_GPIO_WritePin(GPIOB, LED0_DS0_Pin | LED1_DS1_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(LCD_BL_GPIO_Port, LCD_BL_Pin, GPIO_PIN_SET);
-
-  /* 临时自检：帧缓冲填充左红右蓝，用于确认 LTDC/FMC/SDRAM 显示链路；
-     LVGL 启动后会覆盖该内容，不影响正常界面 */
-  {
-    volatile uint16_t *fb = (volatile uint16_t *)0xC0000000UL;
-    const uint32_t total = 1024U * 600U;
-    uint32_t i;
-
-    for (i = 0U; i < (total / 2U); i++)
-    {
-      fb[i] = 0xF800U; /* 左半屏红 */
-    }
-    for (i = (total / 2U); i < total; i++)
-    {
-      fb[i] = 0x001FU; /* 右半屏蓝 */
-    }
-
-    AppUart_Printf("[BOOT] SDRAM=%s State=%lu | LTDC GCR=0x%08lX L1CR=0x%08lX CFBAR=0x%08lX\r\n",
-                   (fb[0] == 0xF800U && fb[total - 1U] == 0x001FU) ? "OK" : "FAIL",
-                   (unsigned long)hsdram1.State,
-                   (unsigned long)LTDC->GCR,
-                   (unsigned long)LTDC_Layer1->CR,
-                   (unsigned long)LTDC_Layer1->CFBAR);
-  }
-
-  /* 临时自检：关闭图层 0，让 LTDC 只输出背景色（绿），完全不经过 SDRAM，
-     用于区分“面板/LTDC 时序问题”与“SDRAM 数据通路问题” */
-  __HAL_LTDC_LAYER_DISABLE(&hltdc, LTDC_LAYER_1);
-  LTDC->BCCR = 0x0000FF00U;
-  __HAL_LTDC_RELOAD_IMMEDIATE_CONFIG(&hltdc);
-
-  {
-    uint32_t lastVsync = LTDC->CDSR & LTDC_CDSR_VSYNCS;
-    uint32_t changes = 0U;
-    uint32_t i;
-
-    for (i = 0U; i < 2000000U; i++)
-    {
-      uint32_t nowVsync = LTDC->CDSR & LTDC_CDSR_VSYNCS;
-      if (nowVsync != lastVsync)
-      {
-        changes++;
-        lastVsync = nowVsync;
-      }
-    }
-
-    AppUart_Printf("[BOOT] LTDC BCCR=0x%08lX VSYNC toggles=%lu (2M polls)\r\n",
-                   (unsigned long)LTDC->BCCR,
-                   (unsigned long)changes);
-  }
 
   /* 创建应用任务并启动调度器，正常情况下不再返回 */
   AppTasks_Init();
