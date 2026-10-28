@@ -1025,9 +1025,6 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>::CMSIS</GroupName>
-        </Group>
-        <Group>
           <GroupName>Middleware/FreeRTOS</GroupName>
           <Files>
             <File>
@@ -3541,6 +3538,9 @@
               <FilePath>../LVGL/lv_conf.h</FilePath>
             </File>
           </Files>
+        </Group>
+        <Group>
+          <GroupName>::CMSIS</GroupName>
         </Group>
       </Groups>
     </Target>
