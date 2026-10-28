@@ -164,7 +164,8 @@ static void app_lvgl_ui_create(void)
 {
   lv_obj_t *scr = lv_screen_active();
 
-  lv_obj_set_style_bg_color(scr, lv_color_hex(0x0E1621), 0);
+  /* 诊断：背景临时用亮红色，便于确认 LVGL 渲染是否真正上屏 */
+  lv_obj_set_style_bg_color(scr, lv_color_hex(0xCC0000), 0);
   lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(scr,
                         LV_FLEX_ALIGN_START,
@@ -267,6 +268,9 @@ static void AppLvgl_Task(void *param)
 
   AppUart_Printf("[LVGL] task start\r\n");
 
+  /* 诊断：保留 main 中写入的“左红右蓝”自检画面 3 秒，便于观察显示链路 */
+  vTaskDelay(pdMS_TO_TICKS(3000));
+
   lv_init();                              /* 仅在本任务内调用一次 */
   AppUart_Printf("[LVGL] lv_init done\r\n");
 
@@ -278,6 +282,48 @@ static void AppLvgl_Task(void *param)
   app_lvgl_ui_create();
   AppUart_Printf("[LVGL] ui ready, free heap = %u bytes\r\n",
                  (unsigned int)xPortGetFreeHeapSize());
+
+  /* 诊断：确认 LVGL 是否已写入帧缓冲（像素是否有变化），以及 LTDC 是否在扫描（VSYNC 翻转） */
+  {
+    volatile uint16_t *fb = (volatile uint16_t *)0xC0000000UL;
+    uint32_t i;
+    uint16_t pxMin = 0xFFFFU;
+    uint16_t pxMax = 0x0000U;
+    uint32_t vsyncChanges = 0U;
+    uint32_t lastVsync;
+
+    for (i = 0U; i < 1000U; i++)
+    {
+      uint16_t px = fb[i * 1200U];
+      if (px < pxMin)
+      {
+        pxMin = px;
+      }
+      if (px > pxMax)
+      {
+        pxMax = px;
+      }
+    }
+
+    lastVsync = ((LTDC->CDSR & LTDC_CDSR_VSYNCS) != 0U) ? 1U : 0U;
+    for (i = 0U; i < 100U; i++)
+    {
+      uint32_t nowVsync;
+
+      vTaskDelay(pdMS_TO_TICKS(2));
+      nowVsync = ((LTDC->CDSR & LTDC_CDSR_VSYNCS) != 0U) ? 1U : 0U;
+      if (nowVsync != lastVsync)
+      {
+        vsyncChanges++;
+        lastVsync = nowVsync;
+      }
+    }
+
+    AppUart_Printf("[LVGL] FB px min=0x%04X max=0x%04X, VSYNC toggles=%lu in 200ms\r\n",
+                   (unsigned int)pxMin,
+                   (unsigned int)pxMax,
+                   (unsigned long)vsyncChanges);
+  }
 
   for (;;)
   {
