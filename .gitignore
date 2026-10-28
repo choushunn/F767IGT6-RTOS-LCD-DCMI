@@ -1,0 +1,29 @@
+# Keil MDK 构建输出
+MDK-ARM/F767IGT6-RTOS-LVGL-LCD-DCMI/
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.lst
+MDK-ARM/build.log
+MDK-ARM/JLinkLog.txt
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.map
+*.htm
+*.dep
+*.lnp
+*.sct
+*.bak
+
+# 本地参考源码（体积大，按 Docs 中记录的下载地址获取）
+Docs/FreeRTOS-LTS/
+Docs/lvgl-v9.6.0-lite/
+Docs/实验46 照相机实验/
+Docs/*.zip
+
+# 编辑器
+.vscode/
+.screenshots/
