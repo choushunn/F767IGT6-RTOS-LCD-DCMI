@@ -271,6 +271,25 @@ static void AppLvgl_Task(void *param)
   /* 诊断：保留 main 中写入的“左红右蓝”自检画面 3 秒，便于观察显示链路 */
   vTaskDelay(pdMS_TO_TICKS(3000));
 
+  /* 诊断：3 秒后重新校验帧缓冲，确认 SDRAM 是否稳定保持数据 */
+  {
+    volatile uint16_t *fb = (volatile uint16_t *)0xC0000000UL;
+    const uint32_t total = 1024U * 600U;
+    uint32_t i;
+    uint32_t bad = 0U;
+
+    for (i = 0U; i < total; i++)
+    {
+      uint16_t expect = (i < (total / 2U)) ? 0xF800U : 0x001FU;
+      if (fb[i] != expect)
+      {
+        bad++;
+      }
+    }
+
+    AppUart_Printf("[LVGL] FB recheck after 3s: mismatch=%lu\r\n", (unsigned long)bad);
+  }
+
   lv_init();                              /* 仅在本任务内调用一次 */
   AppUart_Printf("[LVGL] lv_init done\r\n");
 

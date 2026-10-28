@@ -134,6 +134,32 @@ int main(void)
                    (unsigned long)LTDC_Layer1->CFBAR);
   }
 
+  /* 临时自检：关闭图层 0，让 LTDC 只输出背景色（绿），完全不经过 SDRAM，
+     用于区分“面板/LTDC 时序问题”与“SDRAM 数据通路问题” */
+  __HAL_LTDC_LAYER_DISABLE(&hltdc, LTDC_LAYER_1);
+  LTDC->BCCR = 0x0000FF00U;
+  __HAL_LTDC_RELOAD_IMMEDIATE_CONFIG(&hltdc);
+
+  {
+    uint32_t lastVsync = LTDC->CDSR & LTDC_CDSR_VSYNCS;
+    uint32_t changes = 0U;
+    uint32_t i;
+
+    for (i = 0U; i < 2000000U; i++)
+    {
+      uint32_t nowVsync = LTDC->CDSR & LTDC_CDSR_VSYNCS;
+      if (nowVsync != lastVsync)
+      {
+        changes++;
+        lastVsync = nowVsync;
+      }
+    }
+
+    AppUart_Printf("[BOOT] LTDC BCCR=0x%08lX VSYNC toggles=%lu (2M polls)\r\n",
+                   (unsigned long)LTDC->BCCR,
+                   (unsigned long)changes);
+  }
+
   /* 创建应用任务并启动调度器，正常情况下不再返回 */
   AppTasks_Init();
   vTaskStartScheduler();
