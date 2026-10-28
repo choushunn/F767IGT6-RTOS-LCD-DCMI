@@ -1,0 +1,36 @@
+# 文本文件统一在仓库内以 LF 存储、工作区检出为 CRLF（Windows / Keil 友好），
+# 避免同一文件反复出现 "CRLF will be replaced by LF" 警告
+* text=auto eol=crlf
+
+# Keil 工程文件保持 CRLF
+*.uvprojx text eol=crlf
+*.uvoptx  text eol=crlf
+*.sct     text eol=crlf
+*.s       text eol=crlf
+*.ioc     text eol=crlf
+
+# 二进制资源：禁止换行符转换
+*.zip   binary
+*.7z    binary
+*.rar   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.ico   binary
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+
+# 编译/调试产物
+*.o    binary
+*.axf  binary
+*.lib  binary
+*.hex  binary
+*.bin  binary
+*.map  binary
+*.dep  binary
+*.htm  binary
