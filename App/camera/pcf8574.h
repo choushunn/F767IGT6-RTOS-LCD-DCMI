@@ -8,7 +8,7 @@
 
 /* PCF8574 各 IO 的功能分配（与正点原子例程一致） */
 #define BEEP_IO              0U   /* P0：蜂鸣器，低电平驱动响 */
-#define DCMI_PWDN_IO         2U   /* P2：OV5640 掉电控制，高电平掉电 */
+#define DCMI_PWDN_IO         2U   /* P2：OV2640 掉电控制，高电平掉电 */
 
 /* 初始化：配置引脚并探测器件，返回 0 表示器件应答正常 */
 uint8_t PCF8574_Init(void);

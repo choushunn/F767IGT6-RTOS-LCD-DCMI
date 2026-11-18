@@ -1,0 +1,4 @@
+interface:
+  display_name: "STM32 SWD Evidence Debugging"
+  short_description: "Debug STM32 with logs, pyOCD, and SWD"
+  default_prompt: "Use $stm32-swd-evidence-debugging to diagnose this STM32 display or camera issue from serial logs and live SWD evidence."

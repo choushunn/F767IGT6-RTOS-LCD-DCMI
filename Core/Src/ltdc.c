@@ -66,7 +66,7 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  /* 图层 0 覆盖左侧 544x600（LVGL 状态面板），右侧交给图层 2 的相机画面 */
+  /* 图层 0 覆盖左侧 424x600（人脸授权界面），右侧交给第二图层的相机画面 */
   pLayerCfg.WindowX0 = 0;
   pLayerCfg.WindowX1 = DISPLAY_LVGL_W;
   pLayerCfg.WindowY0 = 0;
@@ -86,7 +86,7 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  /* 第二图层：右侧相机窗口 x 544~1024 / y 60~540，480x480 RGB565。
+  /* 第二图层：右侧相机窗口 x 424~1024 / y 0~600，600x600 RGB565。
    * 混合因子必须为 PAxCA 且 Alpha0=0，窗口外默认色 alpha=0 才能透出图层 0（CA 模式会盖黑左栏）。
    * 首帧写满前不使能，由 app_camera.c 在首帧完成后打开。 */
   pLayerCfg1.WindowX0 = DISPLAY_CAMERA_X0;
@@ -131,13 +131,16 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* ltdcHandle)
   /** Initializes the peripherals clock
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LTDC;
-    /* 像素时钟 45MHz：25MHz/25 * 360 / 2 / 4 */
-    PeriphClkInitStruct.PLLSAI.PLLSAIN = 360;
-    PeriphClkInitStruct.PLLSAI.PLLSAIR = 2;
+    /* 像素时钟 51.17MHz：VCO = 25MHz/25*307 = 307MHz，/R(3) = 102.3MHz，/DivR(2) = 51.17MHz。
+     * ATK-7016 面板手册与正点原子 Linux 驱动 ATK7016_mode 给出的像素时钟是
+     * 51.2MHz（1344x635 总时序 → 60Hz）。之前按 45MHz 只有 52.7Hz，面板刷新率
+     * 不符，会出现滚动/闪烁等"显示不完全正确"的现象。 */
+    PeriphClkInitStruct.PLLSAI.PLLSAIN = 307;
+    PeriphClkInitStruct.PLLSAI.PLLSAIR = 3;
     PeriphClkInitStruct.PLLSAI.PLLSAIQ = 2;
     PeriphClkInitStruct.PLLSAI.PLLSAIP = RCC_PLLSAIP_DIV2;
     PeriphClkInitStruct.PLLSAIDivQ = 1;
-    PeriphClkInitStruct.PLLSAIDivR = RCC_PLLSAIDIVR_4;
+    PeriphClkInitStruct.PLLSAIDivR = RCC_PLLSAIDIVR_2;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
     {
       Error_Handler();

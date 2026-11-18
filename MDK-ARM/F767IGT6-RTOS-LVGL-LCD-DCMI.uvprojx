@@ -1103,6 +1103,11 @@
               <FilePath>../App/lvgl/app_font_cn_14.c</FilePath>
             </File>
             <File>
+              <FileName>app_font_cn_24.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../App/lvgl/app_font_cn_24.c</FilePath>
+            </File>
+            <File>
               <FileName>touch_detect.c</FileName>
               <FileType>1</FileType>
               <FilePath>../App/touch/touch_detect.c</FilePath>
@@ -1143,9 +1148,9 @@
               <FilePath>../App/camera/pcf8574.c</FilePath>
             </File>
             <File>
-              <FileName>ov5640.c</FileName>
+              <FileName>ov2640.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../App/camera/ov5640.c</FilePath>
+              <FilePath>../App/camera/ov2640.c</FilePath>
             </File>
             <File>
               <FileName>app_camera.h</FileName>
@@ -1168,14 +1173,14 @@
               <FilePath>../App/camera/pcf8574.h</FilePath>
             </File>
             <File>
-              <FileName>ov5640.h</FileName>
+              <FileName>ov2640.h</FileName>
               <FileType>5</FileType>
-              <FilePath>../App/camera/ov5640.h</FilePath>
+              <FilePath>../App/camera/ov2640.h</FilePath>
             </File>
             <File>
-              <FileName>ov5640cfg.h</FileName>
+              <FileName>ov2640cfg.h</FileName>
               <FileType>5</FileType>
-              <FilePath>../App/camera/ov5640cfg.h</FilePath>
+              <FilePath>../App/camera/ov2640cfg.h</FilePath>
             </File>
           </Files>
         </Group>

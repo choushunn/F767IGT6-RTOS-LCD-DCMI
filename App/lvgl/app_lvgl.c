@@ -2,7 +2,6 @@
 
 #include "app_config.h"
 #include "camera/app_camera.h"
-#include "camera/pcf8574.h"
 #include "display_config.h"
 #include "touch/touch_detect.h"
 #include "uart/app_uart.h"
@@ -14,169 +13,299 @@
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 
-#include "main.h" /* LED0_DS0_Pin / LED1_DS1_Pin */
-
-/* 子集中文字库（黑体 14px，4bpp，含 ASCII 与界面用到的汉字，约 40KB） */
 LV_FONT_DECLARE(app_font_cn_14);
+LV_FONT_DECLARE(app_font_cn_24);
 
-/* ATK-7016 7 寸屏：1024x600。左侧 0~544 为 LVGL 状态面板（图层 0），
- * 右侧 544~1024 由 LTDC 图层 2 硬件扫描相机画面；LVGL 分辨率为 544x600，
- * 不渲染右栏，可把图层 0 的 SDRAM 带宽压到原来的一半以下 */
-#define APP_UI_HOR_RES    DISPLAY_LVGL_W
-#define APP_UI_VER_RES    DISPLAY_LVGL_H
-#define APP_UI_LEFT_W     DISPLAY_LVGL_W
-#define APP_UI_CONTENT_W  (APP_UI_LEFT_W - 32)
-#define APP_UI_FULL_W     DISPLAY_PANEL_W
-#define APP_UI_FULL_H     DISPLAY_PANEL_H
+#define APP_UI_HOR_RES       DISPLAY_LVGL_W
+#define APP_UI_VER_RES       DISPLAY_LVGL_H
+#define APP_UI_FULL_W        DISPLAY_PANEL_W
+#define APP_UI_FULL_H        DISPLAY_PANEL_H
 
-#define UI_COLOR_BG       0x0E1621
-#define UI_COLOR_PANEL    0x1B2430
-#define UI_COLOR_TEXT     0xE6EDF3
-#define UI_COLOR_ACCENT   0x8AB4F8
-#define UI_COLOR_OK       0x2ECC71
-#define UI_COLOR_WARN     0xE67E22
+#define UI_COLOR_BG          0x0B0E11
+#define UI_COLOR_SURFACE     0x171C22
+#define UI_COLOR_SURFACE_2   0x20262E
+#define UI_COLOR_TEXT        0xE5E9EF
+#define UI_COLOR_MUTED       0x87929F
+#define UI_COLOR_SAFETY      0xF2C94C
+#define UI_COLOR_OK          0x18C29C
+#define UI_COLOR_DANGER      0xE34D59
 
-/* 状态面板中需要动态刷新的控件 */
-static lv_obj_t *s_uptimeValue = NULL;
-static lv_obj_t *s_fpsValue = NULL;
-static lv_obj_t *s_framesValue = NULL;
-static lv_obj_t *s_errorValue = NULL;
-static lv_obj_t *s_camStateValue = NULL;
-static lv_obj_t *s_heapValue = NULL;
-static lv_obj_t *s_poolValue = NULL;
-static lv_obj_t *s_touchValue = NULL;
-static lv_obj_t *s_led0Lamp = NULL;
+/* UI-review flow only. Set to 0 when face-recognition results are connected. */
+#define FACE_UI_DEMO_FLOW    1U
 
-/* 启动加载动画 */
-static lv_obj_t *s_splashRoot = NULL;
-static lv_obj_t *s_splashBar = NULL;
-static lv_obj_t *s_splashPct = NULL;
-static lv_obj_t *s_splashHint = NULL;
+typedef enum
+{
+  FACE_UI_IDLE = 0,
+  FACE_UI_SCANNING,
+  FACE_UI_VERIFIED,
+  FACE_UI_REJECTED
+} FaceUiState_t;
 
-/* 前置声明：加载动画在控件构造与主界面之前执行 */
-static lv_obj_t *create_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t color);
+static lv_obj_t *s_currentStep;
+static lv_obj_t *s_stateTitle;
+static lv_obj_t *s_stateDetail;
+static lv_obj_t *s_stateAccent;
+static lv_obj_t *s_actionButton;
+static lv_obj_t *s_actionLabel;
+static lv_obj_t *s_cameraDot;
+static lv_obj_t *s_touchDot;
+static lv_obj_t *s_deviceError;
+
+static lv_obj_t *s_splashRoot;
+static lv_obj_t *s_splashBar;
+static lv_obj_t *s_splashPct;
+static lv_obj_t *s_splashHint;
+
+static lv_timer_t *s_faceTimer;
+static FaceUiState_t s_faceState = FACE_UI_IDLE;
+static uint8_t s_scanProgress;
+
+static lv_obj_t *create_label(lv_obj_t *parent,
+                              const char *text,
+                              const lv_font_t *font,
+                              uint32_t color);
 static void app_lvgl_ui_create(void);
 
-/* LVGL tick 直接复用 FreeRTOS 的 1kHz SysTick */
 static uint32_t app_lvgl_tick_get_ms(void)
 {
   return (uint32_t)xTaskGetTickCount();
 }
 
-/*=========================== 事件回调 ===========================*/
-
-/* 开关控制板载 LED1（DS1 / PB0，低电平点亮） */
-static void led_switch_event_cb(lv_event_t *e)
+static void set_text_color(lv_obj_t *obj, uint32_t color)
 {
-  lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
-  bool isOn = lv_obj_has_state(sw, LV_STATE_CHECKED);
-
-  HAL_GPIO_WritePin(LED1_DS1_GPIO_Port,
-                    LED1_DS1_Pin,
-                    isOn ? GPIO_PIN_RESET : GPIO_PIN_SET);
+  lv_obj_set_style_text_color(obj, lv_color_hex(color), 0);
 }
 
-/* 开关控制板载蜂鸣器（PCF8574 P0，低电平驱动响，与开关状态相反） */
-static void buzzer_switch_event_cb(lv_event_t *e)
+static void set_status_color(uint32_t color)
 {
-  lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
-  bool isOn = lv_obj_has_state(sw, LV_STATE_CHECKED);
-
-  PCF8574_WriteBit(BEEP_IO, isOn ? 0U : 1U);
+  set_text_color(s_currentStep, color);
+  set_text_color(s_stateTitle, color);
+  lv_obj_set_style_bg_color(s_stateAccent, lv_color_hex(color), 0);
 }
 
-/*=========================== 周期刷新 ===========================*/
+static void set_action_button(const char *text,
+                              uint32_t background,
+                              uint32_t foreground)
+{
+  lv_label_set_text(s_actionLabel, text);
+  lv_obj_set_style_bg_color(s_actionButton, lv_color_hex(background), 0);
+  set_text_color(s_actionLabel, foreground);
+}
 
-/* 500ms：刷新状态面板全部动态值 */
+static void set_detail_hidden(uint8_t hidden)
+{
+  if (hidden != 0U)
+  {
+    lv_obj_set_hidden(s_stateDetail, true);
+  }
+  else
+  {
+    lv_obj_set_hidden(s_stateDetail, false);
+  }
+}
+
+static void apply_face_state(FaceUiState_t state)
+{
+  s_faceState = state;
+
+  if (state == FACE_UI_IDLE)
+  {
+    lv_label_set_text(s_currentStep, "人脸采集");
+    lv_label_set_text(s_stateTitle, "等待验证");
+    set_status_color(UI_COLOR_SAFETY);
+    set_detail_hidden(1U);
+    set_action_button("开始采集", UI_COLOR_SAFETY, UI_COLOR_BG);
+    lv_obj_remove_state(s_actionButton, LV_STATE_DISABLED);
+  }
+  else if (state == FACE_UI_SCANNING)
+  {
+    lv_label_set_text(s_currentStep, "人脸采集");
+    lv_label_set_text(s_stateTitle, "正在采集");
+    set_status_color(UI_COLOR_SAFETY);
+    set_detail_hidden(1U);
+    set_action_button("验证中，请保持稳定", UI_COLOR_SURFACE_2, UI_COLOR_MUTED);
+    lv_obj_add_state(s_actionButton, LV_STATE_DISABLED);
+  }
+  else if (state == FACE_UI_VERIFIED)
+  {
+    lv_label_set_text(s_currentStep, "上机授权");
+    lv_label_set_text(s_stateTitle, "授权通过");
+    set_status_color(UI_COLOR_OK);
+    set_detail_hidden(1U);
+    set_action_button("重新验证", UI_COLOR_SURFACE, UI_COLOR_OK);
+    lv_obj_set_style_border_width(s_actionButton, 2, 0);
+    lv_obj_set_style_border_color(s_actionButton, lv_color_hex(UI_COLOR_OK), 0);
+    lv_obj_remove_state(s_actionButton, LV_STATE_DISABLED);
+  }
+  else
+  {
+    lv_label_set_text(s_currentStep, "人脸采集");
+    lv_label_set_text(s_stateTitle, "验证未通过");
+    set_status_color(UI_COLOR_DANGER);
+    lv_label_set_text(s_stateDetail, "请调整站位或光线，移开遮挡后重新验证");
+    set_detail_hidden(0U);
+    set_action_button("重新验证", UI_COLOR_DANGER, UI_COLOR_TEXT);
+    lv_obj_remove_state(s_actionButton, LV_STATE_DISABLED);
+  }
+
+  if (state != FACE_UI_VERIFIED)
+  {
+    lv_obj_set_style_border_width(s_actionButton, 0, 0);
+  }
+}
+
+static void stop_face_timer(void)
+{
+  if (s_faceTimer != NULL)
+  {
+    lv_timer_delete(s_faceTimer);
+    s_faceTimer = NULL;
+  }
+}
+
+static void finish_face_demo(void)
+{
+  AppCameraStats_t cam;
+
+  AppCamera_GetStats(&cam);
+  stop_face_timer();
+  apply_face_state((cam.ready != 0U) ? FACE_UI_VERIFIED : FACE_UI_REJECTED);
+}
+
+static void face_scan_timer_cb(lv_timer_t *timer)
+{
+  (void)timer;
+
+  s_scanProgress = (uint8_t)(s_scanProgress + 3U);
+  if (s_scanProgress >= 100U)
+  {
+    s_scanProgress = 100U;
+  }
+
+  if (s_scanProgress >= 90U)
+  {
+    lv_label_set_text(s_currentStep, "上机授权");
+    lv_label_set_text(s_stateTitle, "正在授权");
+  }
+  else if (s_scanProgress >= 55U)
+  {
+    lv_label_set_text(s_currentStep, "身份比对");
+    lv_label_set_text(s_stateTitle, "正在比对");
+  }
+
+  if (s_scanProgress >= 100U)
+  {
+#if FACE_UI_DEMO_FLOW
+    finish_face_demo();
+#else
+    /* Real integrations replace this state with the recognition result. */
+    stop_face_timer();
+#endif
+  }
+}
+
+static void start_face_scan(void)
+{
+  AppCameraStats_t cam;
+
+  stop_face_timer();
+  AppCamera_GetStats(&cam);
+  if (cam.ready == 0U)
+  {
+    apply_face_state(FACE_UI_REJECTED);
+    lv_label_set_text(s_stateTitle, "设备未就绪");
+    lv_label_set_text(s_stateDetail, "摄像头尚未连接，无法开始人脸验证");
+    return;
+  }
+
+  s_scanProgress = 0U;
+  apply_face_state(FACE_UI_SCANNING);
+  s_faceTimer = lv_timer_create(face_scan_timer_cb, 200, NULL);
+}
+
+static void action_button_cb(lv_event_t *event)
+{
+  (void)event;
+
+  if (s_faceState != FACE_UI_SCANNING)
+  {
+    start_face_scan();
+  }
+}
+
+static void set_dot_color(lv_obj_t *dot, uint8_t ok)
+{
+  lv_obj_set_style_bg_color(dot,
+                            lv_color_hex((ok != 0U) ? UI_COLOR_OK : UI_COLOR_DANGER),
+                            0);
+}
+
 static void ui_status_timer_cb(lv_timer_t *timer)
 {
   AppCameraStats_t cam;
-  uint32_t upSec;
+  uint8_t cameraReady;
+  uint8_t touchReady;
 
   (void)timer;
 
-  upSec = lv_tick_get() / 1000U;
-
-  if (s_uptimeValue != NULL)
-  {
-    lv_label_set_text_fmt(s_uptimeValue, "%02lu:%02lu:%02lu",
-                          (unsigned long)(upSec / 3600U),
-                          (unsigned long)((upSec / 60U) % 60U),
-                          (unsigned long)(upSec % 60U));
-  }
-
   AppCamera_GetStats(&cam);
+  cameraReady = (cam.ready != 0U) ? 1U : 0U;
+  touchReady = (Touch_IsReady() != 0U) ? 1U : 0U;
 
-  if (s_fpsValue != NULL)
-  {
-    lv_label_set_text_fmt(s_fpsValue, "%lu", (unsigned long)cam.fps);
-  }
-  if (s_framesValue != NULL)
-  {
-    lv_label_set_text_fmt(s_framesValue, "%lu", (unsigned long)cam.frames);
-  }
-  if (s_errorValue != NULL)
-  {
-    lv_label_set_text_fmt(s_errorValue, "%lu / %lu / %lu",
-                          (unsigned long)cam.esync,
-                          (unsigned long)cam.eovr,
-                          (unsigned long)cam.dmaerr);
-    lv_obj_set_style_text_color(s_errorValue,
-                                lv_color_hex(((cam.esync + cam.eovr + cam.dmaerr) == 0U)
-                                                 ? UI_COLOR_OK
-                                                 : UI_COLOR_WARN),
-                                0);
-  }
-  if (s_camStateValue != NULL)
-  {
-    lv_label_set_text(s_camStateValue,
-                      (cam.ready != 0U) ? "运行中" : "已停止");
-    lv_obj_set_style_text_color(s_camStateValue,
-                                lv_color_hex((cam.ready != 0U) ? UI_COLOR_OK : UI_COLOR_WARN),
-                                0);
-  }
+  set_dot_color(s_cameraDot, cameraReady);
+  set_dot_color(s_touchDot, touchReady);
 
-  if (s_heapValue != NULL)
+  if ((cameraReady == 0U) || (touchReady == 0U))
   {
-    lv_label_set_text_fmt(s_heapValue, "%u B", (unsigned int)xPortGetFreeHeapSize());
-  }
-  if (s_poolValue != NULL)
-  {
-    lv_label_set_text_fmt(s_poolValue, "%u B", (unsigned int)LV_MEM_SIZE);
-  }
-  if (s_touchValue != NULL)
-  {
-    lv_label_set_text(s_touchValue, (Touch_IsReady() != 0U) ? "正常" : "未找到");
-    lv_obj_set_style_text_color(s_touchValue,
-                                lv_color_hex((Touch_IsReady() != 0U) ? UI_COLOR_OK : UI_COLOR_WARN),
-                                0);
-  }
-
-  /* LED0（PB1）由 app_led 任务 500ms 翻转，这里读回真实电平：低电平点亮 */
-  if (s_led0Lamp != NULL)
-  {
-    if (HAL_GPIO_ReadPin(LED0_DS0_GPIO_Port, LED0_DS0_Pin) == GPIO_PIN_RESET)
+    if ((cameraReady == 0U) && (touchReady == 0U))
     {
-      lv_led_on(s_led0Lamp);
+      lv_label_set_text(s_deviceError, "设备异常");
+    }
+    else if (cameraReady == 0U)
+    {
+      lv_label_set_text(s_deviceError, "摄像头异常");
     }
     else
     {
-      lv_led_off(s_led0Lamp);
+      lv_label_set_text(s_deviceError, "触摸异常");
     }
+    lv_obj_set_hidden(s_deviceError, false);
+  }
+  else
+  {
+    lv_obj_set_hidden(s_deviceError, true);
   }
 }
 
-/* 40ms：通知相机处理换帧统计（换帧本身在 DMA 中断里完成，LVGL 不搬运像素） */
 static void ui_camera_timer_cb(lv_timer_t *timer)
 {
   (void)timer;
-
   AppCamera_PollFrame();
 }
 
-/*=========================== 启动加载动画 ===========================*/
+static void create_hazard_strip(lv_obj_t *parent,
+                                int32_t x,
+                                int32_t y,
+                                int32_t width)
+{
+  const int32_t block = 32;
+  int32_t i;
 
-/* 每 25ms 推进 4%，约 0.65s；阶段文案随进度切换 */
+  for (i = 0; i < (width / block); i++)
+  {
+    lv_obj_t *stripe = lv_obj_create(parent);
+    lv_obj_set_pos(stripe, x + (i * block), y);
+    lv_obj_set_size(stripe, block, 6);
+    lv_obj_set_style_radius(stripe, 0, 0);
+    lv_obj_set_style_border_width(stripe, 0, 0);
+    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(
+        stripe,
+        lv_color_hex(((i & 1) == 0) ? UI_COLOR_BG : UI_COLOR_SAFETY),
+        0);
+  }
+}
+
 static void splash_timer_cb(lv_timer_t *timer)
 {
   int32_t value = lv_bar_get_value(s_splashBar) + 4;
@@ -190,36 +319,34 @@ static void splash_timer_cb(lv_timer_t *timer)
 
   if (s_splashHint != NULL)
   {
-    if (value < 30)
+    if (value < 35)
     {
-      lv_label_set_text(s_splashHint, "显示就绪");
+      lv_label_set_text(s_splashHint, "显示系统自检");
     }
-    else if (value < 60)
+    else if (value < 70)
     {
-      lv_label_set_text(s_splashHint, "输入就绪");
+      lv_label_set_text(s_splashHint, "视觉采集自检");
     }
     else if (value < 95)
     {
-      lv_label_set_text(s_splashHint, "相机就绪");
+      lv_label_set_text(s_splashHint, "安全联锁自检");
     }
     else
     {
-      lv_label_set_text(s_splashHint, "进入界面");
+      lv_label_set_text(s_splashHint, "准备授权");
     }
   }
 
   if (value >= 100)
   {
     lv_timer_delete(timer);
+    s_splashRoot = NULL;
+    s_splashBar = NULL;
+    s_splashPct = NULL;
+    s_splashHint = NULL;
+    lv_obj_clean(lv_screen_active());
 
-    if (s_splashRoot != NULL)
-    {
-      lv_obj_delete(s_splashRoot);
-      s_splashRoot = NULL;
-    }
-
-    /* 加载结束：图层 0 收回左栏 544 宽，再构建状态面板 */
-    lv_port_disp_set_area(APP_UI_LEFT_W, APP_UI_VER_RES);
+    lv_port_disp_set_area(APP_UI_HOR_RES, APP_UI_VER_RES);
     app_lvgl_ui_create();
   }
 }
@@ -227,183 +354,187 @@ static void splash_timer_cb(lv_timer_t *timer)
 static void app_lvgl_splash_create(void)
 {
   lv_obj_t *scr;
+  lv_obj_t *accent;
+  lv_obj_t *brand;
+  lv_obj_t *subtitle;
 
-  /* 加载动画占满整屏：图层 0 临时扩到 1024x600（相机图层此时尚未使能） */
   lv_port_disp_set_area(APP_UI_FULL_W, APP_UI_FULL_H);
-
   scr = lv_screen_active();
-
   lv_obj_set_style_bg_color(scr, lv_color_hex(UI_COLOR_BG), 0);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(scr, 0, 0);
 
+  accent = lv_obj_create(scr);
+  lv_obj_set_pos(accent, 94, 130);
+  lv_obj_set_size(accent, 16, 330);
+  lv_obj_set_style_radius(accent, 0, 0);
+  lv_obj_set_style_border_width(accent, 0, 0);
+  lv_obj_set_style_bg_color(accent, lv_color_hex(UI_COLOR_SAFETY), 0);
+
   s_splashRoot = lv_obj_create(scr);
-  lv_obj_set_size(s_splashRoot, APP_UI_FULL_W, APP_UI_FULL_H);
+  lv_obj_set_pos(s_splashRoot, 144, 104);
+  lv_obj_set_size(s_splashRoot, 720, 390);
   lv_obj_set_style_bg_opa(s_splashRoot, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_splashRoot, 0, 0);
   lv_obj_set_style_pad_all(s_splashRoot, 0, 0);
-  lv_obj_set_style_pad_row(s_splashRoot, 14, 0);
+  lv_obj_set_style_pad_row(s_splashRoot, 16, 0);
   lv_obj_set_flex_flow(s_splashRoot, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(s_splashRoot,
                         LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_scroll_dir(s_splashRoot, LV_DIR_NONE);
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
 
-  create_label(s_splashRoot, "系统启动", &app_font_cn_14, UI_COLOR_TEXT);
-  create_label(s_splashRoot, "STM32F767 - FreeRTOS + LVGL", &app_font_cn_14, UI_COLOR_ACCENT);
+  brand = create_label(s_splashRoot,
+                       "身份安全授权",
+                       &app_font_cn_24,
+                       UI_COLOR_SAFETY);
+  lv_obj_set_style_pad_top(brand, 8, 0);
+  subtitle = create_label(s_splashRoot,
+                          "设备 A-01  |  安全联锁启动中",
+                          &app_font_cn_14,
+                          UI_COLOR_MUTED);
+  lv_obj_set_style_pad_bottom(subtitle, 20, 0);
 
   s_splashBar = lv_bar_create(s_splashRoot);
-  lv_obj_set_size(s_splashBar, 360, 14);
+  lv_obj_set_size(s_splashBar, 520, 12);
   lv_bar_set_range(s_splashBar, 0, 100);
   lv_bar_set_value(s_splashBar, 0, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(s_splashBar, lv_color_hex(0x1B2430), 0);
-  lv_obj_set_style_bg_color(s_splashBar, lv_color_hex(0x00E5FF), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(s_splashBar, lv_color_hex(UI_COLOR_SURFACE_2), 0);
+  lv_obj_set_style_bg_color(s_splashBar,
+                            lv_color_hex(UI_COLOR_SAFETY),
+                            LV_PART_INDICATOR);
+  lv_obj_set_style_radius(s_splashBar, 0, 0);
+  lv_obj_set_style_radius(s_splashBar, 0, LV_PART_INDICATOR);
 
-  s_splashPct = create_label(s_splashRoot, "0%", &app_font_cn_14, UI_COLOR_TEXT);
-  s_splashHint = create_label(s_splashRoot, "启动中", &app_font_cn_14, 0x7F8C8D);
+  s_splashPct = create_label(s_splashRoot, "0%", &app_font_cn_24, UI_COLOR_TEXT);
+  s_splashHint = create_label(s_splashRoot,
+                              "显示系统自检",
+                              &app_font_cn_14,
+                              UI_COLOR_MUTED);
 
+  create_hazard_strip(scr, 94, 480, 832);
   lv_timer_create(splash_timer_cb, 25, NULL);
 }
 
-/*=========================== 控件构造 ===========================*/
-
-static lv_obj_t *create_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t color)
+static lv_obj_t *create_label(lv_obj_t *parent,
+                              const char *text,
+                              const lv_font_t *font,
+                              uint32_t color)
 {
   lv_obj_t *label = lv_label_create(parent);
   lv_label_set_text(label, text);
+  lv_obj_set_style_text_font(label, font, 0);
   lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
-  if (font != NULL)
-  {
-    lv_obj_set_style_text_font(label, font, 0);
-  }
   return label;
 }
 
-static lv_obj_t *create_panel(lv_obj_t *parent, int32_t w, int32_t h)
+static lv_obj_t *create_dot(lv_obj_t *parent, int32_t x, int32_t y)
 {
-  lv_obj_t *panel = lv_obj_create(parent);
-  lv_obj_set_size(panel, w, h);
-  lv_obj_set_style_bg_color(panel, lv_color_hex(UI_COLOR_PANEL), 0);
-  lv_obj_set_style_border_width(panel, 0, 0);
-  lv_obj_set_style_radius(panel, 10, 0);
-  lv_obj_set_style_pad_all(panel, 10, 0);
-  /* 右侧多留 8px：面板右边缘与相机图层相邻，避免最右侧控件贴边被遮 */
-  lv_obj_set_style_pad_right(panel, 18, 0);
-  lv_obj_set_style_pad_row(panel, 2, 0);
-  lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(panel,
-                        LV_FLEX_ALIGN_START,
-                        LV_FLEX_ALIGN_START,
-                        LV_FLEX_ALIGN_START);
-  lv_obj_set_scroll_dir(panel, LV_DIR_NONE);
-  return panel;
+  lv_obj_t *dot = lv_obj_create(parent);
+
+  lv_obj_set_pos(dot, x, y);
+  lv_obj_set_size(dot, 8, 8);
+  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(dot, 0, 0);
+  lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(UI_COLOR_OK), 0);
+  return dot;
 }
 
-static lv_obj_t *create_row(lv_obj_t *parent, int32_t w, int32_t h)
+static void create_divider(lv_obj_t *parent, int32_t x, int32_t y, int32_t width)
 {
-  lv_obj_t *row = lv_obj_create(parent);
-  lv_obj_set_size(row, w, h);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 0, 0);
-  lv_obj_set_style_pad_all(row, 0, 0);
-  lv_obj_set_style_pad_column(row, 0, 0);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row,
-                        LV_FLEX_ALIGN_SPACE_BETWEEN,
-                        LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_scroll_dir(row, LV_DIR_NONE);
-  return row;
-}
+  lv_obj_t *divider = lv_obj_create(parent);
 
-/* 分区标题：小号强调色文字 + 分隔线 */
-static void create_section(lv_obj_t *parent, const char *title)
-{
-  lv_obj_t *label = create_label(parent, title, &app_font_cn_14, UI_COLOR_ACCENT);
-  lv_obj_set_style_pad_top(label, 8, 0);
-  (void)label;
-}
-
-/* 一行「名称 —— 数值」，返回数值 label 供后续刷新 */
-static lv_obj_t *create_status_row(lv_obj_t *parent, const char *name, const char *value, uint32_t color)
-{
-  lv_obj_t *row = create_row(parent, APP_UI_CONTENT_W, 26);
-  lv_obj_t *valueLabel;
-
-  create_label(row, name, &app_font_cn_14, UI_COLOR_TEXT);
-  valueLabel = create_label(row, value, &app_font_cn_14, color);
-
-  return valueLabel;
+  lv_obj_set_pos(divider, x, y);
+  lv_obj_set_size(divider, width, 1);
+  lv_obj_set_style_bg_color(divider, lv_color_hex(UI_COLOR_SURFACE_2), 0);
+  lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(divider, 0, 0);
+  lv_obj_set_style_radius(divider, 0, 0);
 }
 
 static void app_lvgl_ui_create(void)
 {
-  lv_obj_t *scr = lv_screen_active();
+  lv_obj_t *scr;
+  lv_obj_t *device;
+  lv_obj_t *onlineDot;
+  lv_obj_t *onlineText;
 
+  scr = lv_screen_active();
   lv_obj_set_style_bg_color(scr, lv_color_hex(UI_COLOR_BG), 0);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(scr, 0, 0);
 
-  /* 整个 LVGL 屏幕（544x600）就是左侧状态面板 */
-  lv_obj_t *left = create_panel(scr, APP_UI_LEFT_W, APP_UI_VER_RES);
-  lv_obj_set_style_radius(left, 0, 0);
+  device = create_label(scr, "A-01", &app_font_cn_24, UI_COLOR_SAFETY);
+  lv_obj_set_pos(device, 16, 18);
 
-  create_label(left, "系统状态", &app_font_cn_14, 0xFFFFFF);
-  lv_obj_t *subtitle = create_label(left, "STM32F767 - RTOS + LVGL", &app_font_cn_14, 0x7F8C8D);
-  lv_obj_set_style_pad_bottom(subtitle, 2, 0);
+  onlineDot = create_dot(scr, 350, 23);
+  onlineText = create_label(scr, "在线", &app_font_cn_14, UI_COLOR_MUTED);
+  lv_obj_set_pos(onlineText, 364, 15);
+  create_divider(scr, 16, 74, 392);
 
-  s_uptimeValue = create_status_row(left, "运行时间", "00:00:00", UI_COLOR_ACCENT);
+  s_currentStep = create_label(scr, "人脸采集", &app_font_cn_24, UI_COLOR_SAFETY);
+  lv_obj_set_pos(s_currentStep, 16, 118);
 
-  /* 相机 */
-  create_section(left, "相机");
-  s_fpsValue = create_status_row(left, "帧率", "0", UI_COLOR_OK);
-  s_framesValue = create_status_row(left, "帧数", "0", UI_COLOR_TEXT);
-  s_errorValue = create_status_row(left, "错误", "0 / 0 / 0", UI_COLOR_OK);
-  s_camStateValue = create_status_row(left, "状态", "--", UI_COLOR_WARN);
+  s_stateAccent = lv_obj_create(scr);
+  lv_obj_set_pos(s_stateAccent, 16, 178);
+  lv_obj_set_size(s_stateAccent, 4, 82);
+  lv_obj_set_style_radius(s_stateAccent, 0, 0);
+  lv_obj_set_style_border_width(s_stateAccent, 0, 0);
+  lv_obj_set_style_bg_opa(s_stateAccent, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(s_stateAccent, lv_color_hex(UI_COLOR_SAFETY), 0);
 
-  /* 系统资源 */
-  create_section(left, "系统");
-  s_heapValue = create_status_row(left, "剩余堆", "--", UI_COLOR_TEXT);
-  s_poolValue = create_status_row(left, "内存池", "--", UI_COLOR_TEXT);
-  s_touchValue = create_status_row(left, "触摸", "--", UI_COLOR_TEXT);
+  s_stateTitle = create_label(scr, "等待验证", &app_font_cn_24, UI_COLOR_TEXT);
+  lv_obj_set_pos(s_stateTitle, 36, 190);
 
-  /* 板载资源 */
-  create_section(left, "板载");
-  lv_obj_t *rowLed0 = create_row(left, APP_UI_CONTENT_W, 30);
-  create_label(rowLed0, "LED0 闪烁", &app_font_cn_14, UI_COLOR_TEXT);
-  s_led0Lamp = lv_led_create(rowLed0);
-  lv_obj_set_size(s_led0Lamp, 18, 18);
-  lv_led_set_color(s_led0Lamp, lv_color_hex(UI_COLOR_OK));
-  lv_led_set_brightness(s_led0Lamp, 255);
+  s_stateDetail = create_label(scr,
+                               "",
+                               &app_font_cn_14,
+                               UI_COLOR_MUTED);
+  lv_obj_set_pos(s_stateDetail, 36, 232);
+  lv_obj_set_width(s_stateDetail, 364);
 
-  lv_obj_t *rowLed1 = create_row(left, APP_UI_CONTENT_W, 34);
-  create_label(rowLed1, "LED1", &app_font_cn_14, UI_COLOR_TEXT);
-  lv_obj_t *ledSwitch = lv_switch_create(rowLed1);
-  lv_obj_add_event_cb(ledSwitch, led_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  s_actionButton = lv_button_create(scr);
+  lv_obj_set_pos(s_actionButton, 16, 476);
+  lv_obj_set_size(s_actionButton, 392, 68);
+  lv_obj_set_style_radius(s_actionButton, 5, 0);
+  lv_obj_set_style_bg_color(s_actionButton,
+                            lv_color_hex(UI_COLOR_SAFETY),
+                            0);
+  lv_obj_set_style_bg_opa(s_actionButton, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(s_actionButton, 0, 0);
+  lv_obj_set_style_shadow_width(s_actionButton, 0, 0);
+  lv_obj_add_event_cb(s_actionButton, action_button_cb, LV_EVENT_CLICKED, NULL);
 
-  lv_obj_t *rowBeep = create_row(left, APP_UI_CONTENT_W, 34);
-  create_label(rowBeep, "蜂鸣器", &app_font_cn_14, UI_COLOR_TEXT);
-  lv_obj_t *beepSwitch = lv_switch_create(rowBeep);
-  lv_obj_add_event_cb(beepSwitch, buzzer_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  s_actionLabel = create_label(s_actionButton,
+                               "开始采集",
+                               &app_font_cn_24,
+                               UI_COLOR_BG);
+  lv_obj_center(s_actionLabel);
 
+  s_cameraDot = create_dot(scr, 360, 557);
+  s_touchDot = create_dot(scr, 380, 557);
+
+  s_deviceError = create_label(scr, "", &app_font_cn_14, UI_COLOR_DANGER);
+  lv_obj_set_pos(s_deviceError, 16, 548);
+  lv_obj_set_hidden(s_deviceError, true);
+
+  apply_face_state(FACE_UI_IDLE);
   lv_timer_create(ui_status_timer_cb, 500, NULL);
   lv_timer_create(ui_camera_timer_cb, APP_CAMERA_REFRESH_MS, NULL);
 }
-
-/*=========================== LVGL 任务 ===========================*/
 
 static void AppLvgl_Task(void *param)
 {
   (void)param;
 
-  lv_init();                              /* 仅在本任务内调用一次 */
-  lv_tick_set_cb(app_lvgl_tick_get_ms);   /* 绑定 FreeRTOS SysTick */
+  lv_init();
+  lv_tick_set_cb(app_lvgl_tick_get_ms);
   lv_port_disp_init();
   lv_port_indev_init();
-  app_lvgl_splash_create();               /* 先显示启动加载动画，完成后自动进入状态面板 */
+  app_lvgl_splash_create();
 
-  AppUart_Printf("[LVGL] init done, %dx%d, free heap = %u bytes\r\n",
+  AppUart_Printf("[LVGL] face-auth UI ready, %dx%d, free heap = %u bytes\r\n",
                  APP_UI_HOR_RES,
                  APP_UI_VER_RES,
                  (unsigned int)xPortGetFreeHeapSize());

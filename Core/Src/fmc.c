@@ -59,7 +59,10 @@ void MX_FMC_Init(void)
   SdramTiming.ExitSelfRefreshDelay = 8;
   SdramTiming.SelfRefreshTime = 6;
   SdramTiming.RowCycleDelay = 6;
-  SdramTiming.WriteRecoveryTime = 16;
+  /* tWR = 2 SDCLK cycles，与正点原子 F767 同板参考驱动一致。
+   * 原值 16 会在每次 SDRAM 写后额外等待 14 个周期，放大 DCMI 写帧缓冲
+   * 与 LTDC 扫描之间的总线占用。 */
+  SdramTiming.WriteRecoveryTime = 2;
   SdramTiming.RPDelay = 2;
   SdramTiming.RCDDelay = 2;
 
