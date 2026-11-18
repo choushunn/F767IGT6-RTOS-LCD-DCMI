@@ -23,7 +23,7 @@
 #define CAM_MIRROR_H            1U
 #define CAM_FLIP_V              1U
 
-/* 相机状态快照：供左侧人脸授权界面与诊断日志使用 */
+/* 相机状态快照：供竖屏人脸授权界面与诊断日志使用 */
 typedef struct
 {
   uint32_t fps;      /* 最近 0.5s 统计的帧率 */
@@ -32,13 +32,23 @@ typedef struct
   uint32_t eovr;     /* DCMI 溢出错累计（丢像素，会触发采集流重排） */
   uint32_t dmaerr;   /* DMA 传输错误累计 */
   uint32_t desync;   /* 采集流错位校正次数 */
-  uint8_t  ready;    /* 1 = 相机已初始化并开始采集 */
+  uint8_t  ready;    /* 1 = 相机传感器与 DCMI 已初始化 */
+  uint8_t  streaming;/* 1 = 当前正在进行 DMA 连续采集 */
 } AppCameraStats_t;
 
-/* 调度器启动前调用：传感器上电复位、SCCB 配置、DCMI/DMA 启动 */
+/* 调度器启动前调用：传感器上电复位、SCCB 与 DCMI 配置；不启动连续采集 */
 void AppCamera_Init(void);
 
-/* LVGL 任务内按 APP_CAMERA_REFRESH_MS 周期调用：首帧使能图层、错位重排与统计打印 */
+/* 启动按需预览：配置 DMA、开始 DCMI 采集；成功返回 0，失败返回 1 */
+uint8_t AppCamera_StartPreview(void);
+
+/* 冻结最后一张完整照片：停止 DCMI/DMA，但保持 LTDC 图层显示当前帧 */
+void AppCamera_FreezePreview(void);
+
+/* 完全停止预览：停止采集并关闭 LTDC 相机图层 */
+void AppCamera_StopPreview(void);
+
+/* 连续预览期间按 APP_CAMERA_REFRESH_MS 周期调用：首帧使能图层、错位重排与统计打印 */
 void AppCamera_PollFrame(void);
 
 /* 读取相机状态快照（任务上下文调用） */

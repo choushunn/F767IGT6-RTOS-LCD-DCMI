@@ -13,10 +13,11 @@
  * 数据通路：OV2640 ->（DCMI 8 位并口）-> DMA2_Stream1 -> SDRAM 相机帧缓冲
  *            -> LTDC 图层 2 硬件扫描显示。CPU 不参与任何像素搬运。
  *
- * 一帧 600x600 RGB565 = 720000B = 180000 个 32 位字，而 DMA 的 NDTR 只有
+ * 一帧 512x512 RGB565 = 524288B = 131072 个 32 位字，而 DMA 的 NDTR 只有
  * 16 位（最大 65535 字），整帧长度写进去会被静默截断，所以必须把一帧拆成
- * 若干块：每块 CAM_LINES_PER_CHUNK 行 = 300*24 = 7200 个 32 位字，一帧
- * CAM_CHUNKS_PER_FRAME = 25 块。
+ * 若干块：每块 CAM_LINES_PER_CHUNK 行 = 256*128 = 32768 个 32 位字，一帧
+ * CAM_CHUNKS_PER_FRAME = 4 块。块越大，NORMAL 模式重新使能次数越少，
+ * DCMI FIFO 在块边界的扰动越少。
  *
  * 块续排方式：DMA 用 NORMAL 模式，一块传完 EN 由硬件清零，TC 中断里把
  * M0AR/NDTR 指向下一块并重新开流。SWD 实测 FIFO Full + 内存 INCR4 可维持
@@ -32,12 +33,12 @@
  * 出现整块丢失/OVR 丢像素导致的错位时请求重排（带冷却时间）。
  *============================================================================*/
 
-/* 一行 600 像素 = 1200B = 300 个 32 位字（DCMI 每个 32 位字给 2 个像素） */
+/* 一行 512 像素 = 1024B = 256 个 32 位字（DCMI 每个 32 位字给 2 个像素） */
 #define CAM_LINE_BYTES          (CAM_IMG_W * 2U)
 #define CAM_LINE_WORDS          (CAM_LINE_BYTES / 4U)
 
-/* 每块 24 行：28800B/块，25 块/帧。 */
-#define CAM_LINES_PER_CHUNK     24U
+/* 每块 128 行：131072B/块，4 块/帧，NDTR=32768 words。 */
+#define CAM_LINES_PER_CHUNK     128U
 #define CAM_CHUNK_WORDS         (CAM_LINE_WORDS * CAM_LINES_PER_CHUNK)
 #define CAM_CHUNK_BYTES         (CAM_LINE_BYTES * CAM_LINES_PER_CHUNK)
 #define CAM_CHUNKS_PER_FRAME    (CAM_IMG_H / CAM_LINES_PER_CHUNK)
@@ -55,12 +56,6 @@
 #if ((CAM_IMG_H % CAM_LINES_PER_CHUNK) != 0U)
 #error "CAM_IMG_H 必须是 CAM_LINES_PER_CHUNK 的整数倍，否则帧边界不落在块边界上"
 #endif
-#if ((DISPLAY_LVGL_W + DISPLAY_CAMERA_W) != DISPLAY_PANEL_W)
-#error "UI 宽度与摄像头宽度必须正好覆盖面板宽度"
-#endif
-#if (DISPLAY_CAMERA_H != DISPLAY_PANEL_H)
-#error "摄像头高度必须覆盖面板高度"
-#endif
 #if (CAM_CHUNK_WORDS > 65535U)
 #error "单块 DMA 长度超过 NDTR 的 16 位上限"
 #endif
@@ -68,16 +63,16 @@
 #error "单块 DMA 字节数必须满足 16 字节突发对齐"
 #endif
 
-/* OV2640 原生 4:3 画幅 1600x1200：居中裁出 600x600 直接 1:1 输出。
+/* OV2640 原生 4:3 画幅 1600x1200：居中裁出 512x512 直接 1:1 输出。
  * 不缩放（窗口尺寸 == 输出尺寸）的原因：DSP 的 image size（0xC0/0xC1 回读）
  * 只有 800x600，窗口必须 <= 该尺寸；之前用 1152x1152 窗口超出 DSP 能力，
  * 输出是"每行一个静态字节"的无效数据。1:1 也顺带避开所有缩放比例问题。 */
 #define CAM_SOURCE_W        1600U
 #define CAM_SOURCE_H        1200U
-#define CAM_CROP_SRC_W      600U
-#define CAM_CROP_SRC_H      600U
-#define CAM_CROP_X          ((CAM_SOURCE_W - CAM_CROP_SRC_W) / 2U)   /* 500 */
-#define CAM_CROP_Y          ((CAM_SOURCE_H - CAM_CROP_SRC_H) / 2U)   /* 300 */
+#define CAM_CROP_SRC_W      512U
+#define CAM_CROP_SRC_H      512U
+#define CAM_CROP_X          ((CAM_SOURCE_W - CAM_CROP_SRC_W) / 2U)   /* 544 */
+#define CAM_CROP_Y          ((CAM_SOURCE_H - CAM_CROP_SRC_H) / 2U)   /* 344 */
 
 /* 中断优先级：2 的抢占级高于 RTOS 阈值 5（数值越小越高），
  * 因此 DCMI / DMA ISR 内禁止调用任何 FreeRTOS API */
@@ -91,9 +86,9 @@ volatile uint32_t g_camDmaErr = 0U;
 /* 诊断：8 根数据线 D0..D7 的高电平占比（0~100）。若全为 0 或 100，
  * 说明数据线没有被传感器驱动（接线/引脚问题）。 */
 volatile uint32_t g_dataDuty[8] = {0U};
-/* 诊断：两次行中断之间 DMA 前进的字数（600 RGB565 像素应为 300） */
+/* 诊断：两次行中断之间 DMA 前进的字数（512 RGB565 像素应为 256） */
 volatile uint32_t g_wordsPerLine = 0U;
-volatile uint32_t g_wordsPerLineMax = 0U;   /* 流正常时的最大值（288 = 每像素 2 字节） */
+volatile uint32_t g_wordsPerLineMax = 0U;   /* 流正常时的最大值（256 = 每像素 2 字节） */
 static uint32_t s_lineNdtr = 0U;
 static uint8_t s_lineNdtrValid = 0U;
 
@@ -126,6 +121,7 @@ static volatile uint8_t s_dispFb = 0U;        /* LTDC 当前扫描的帧缓冲�
 static volatile uint8_t s_layerOn = 0U;
 
 static uint8_t s_camReady = 0U;
+static uint8_t s_streaming = 0U;
 static uint32_t s_lastSeq = 0U;
 static uint32_t s_lastStatSeq = 0U;
 static uint32_t s_statTick = 0U;
@@ -246,7 +242,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
   (void)hdcmi;
   s_lineIsrCnt++;
 
-  /* 用 NDTR 差值测每行字数；600 像素 RGB565 应为 300 字。 */
+  /* 用 NDTR 差值测每行字数；512 像素 RGB565 应为 256 字。 */
   now = DMA2_Stream1->NDTR;
   if (s_lineNdtrValid != 0U)
   {
@@ -283,7 +279,7 @@ void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 
   s_vsyncCnt++;
 
-  /* 记录本帧行数（行中断计数），用于核对 576/600/1200 等真实几何 */
+  /* 记录本帧行数（行中断计数），用于核对传感器真实输出几何 */
   s_linesPerFrame = s_lineIsrCnt;
   s_lineIsrCnt = 0U;
   s_framesIrq++;
@@ -499,7 +495,7 @@ static uint8_t cam_dma_config(void)
   s_hdmaCam.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
   s_hdmaCam.Init.Mode = DMA_NORMAL;                    /* TC 中断逐块续排 M0AR/NDTR */
   s_hdmaCam.Init.Priority = DMA_PRIORITY_HIGH;         /* 与 LTDC/LVGL 抢 SDRAM 时不被饿死 */
-  /* FIFO Full + 内存 INCR4：SWD 实测 2 秒完成 696 个 24 行块（约 14.5fps）；
+  /* FIFO Full + 内存 INCR4：SWD 实测逐块续排可维持约 14.5fps；
    * 原直接模式仅 2–6fps，且 FEIF 持续增长。WORD 数据宽度下 HAL 只允许
    * FIFO Full 配合 INC4/INC8。 */
   s_hdmaCam.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
@@ -695,6 +691,8 @@ static uint8_t cam_sensor_init(void)
 void AppCamera_Init(void)
 {
   s_camReady = 0U;
+  s_streaming = 0U;
+  s_layerOn = 0U;
   g_camStage = 1U;
 
   if (cam_sensor_init() != 0U)
@@ -726,16 +724,8 @@ void AppCamera_Init(void)
   cam_gpio_boost();
   g_camStage = 6U;
 
-  if (cam_capture_start() != 0U)
-  {
-    /* 常见原因：HAL_DMA_Init 参数被拒（FIFO 阈值/突发组合）、DMA 时钟未使能 */
-    g_camStage = 7U;                 /* DMA 配置失败 */
-    AppUart_Printf("[cam] dma start failed, hal_err=0x%08lX\r\n",
-                   (unsigned long)s_hdmaCam.ErrorCode);
-    return;
-  }
-  g_camStage = 8U;
-  AppUart_Printf("[cam] capture started, chunk=%lu words x %lu per frame\r\n",
+  g_camStage = 7U;
+  AppUart_Printf("[cam] ready for preview, chunk=%lu words x %lu per frame\r\n",
                  (unsigned long)CAM_CHUNK_WORDS,
                  (unsigned long)CAM_CHUNKS_PER_FRAME);
 
@@ -777,6 +767,80 @@ static void cam_layer_config(uint32_t fbAddr)
    * 必须显式使能图层并触发重载，否则右栏永远是背景色 */
   __HAL_LTDC_LAYER_ENABLE(&hltdc, LTDC_LAYER_2);
   __HAL_LTDC_VERTICAL_BLANKING_RELOAD_CONFIG(&hltdc);
+}
+
+static void cam_layer_disable(void)
+{
+  LTDC_Layer2->CR &= ~LTDC_LxCR_LEN;
+  __HAL_LTDC_VERTICAL_BLANKING_RELOAD_CONFIG(&hltdc);
+  s_layerOn = 0U;
+}
+
+uint8_t AppCamera_StartPreview(void)
+{
+  if (s_camReady == 0U)
+  {
+    return 1U;
+  }
+  if (s_streaming != 0U)
+  {
+    return 0U;
+  }
+
+  cam_layer_disable();
+  if (cam_capture_start() != 0U)
+  {
+    g_camStage = 8U;
+    AppUart_Printf("[cam] preview start failed, hal_err=0x%08lX\r\n",
+                   (unsigned long)s_hdmaCam.ErrorCode);
+    return 1U;
+  }
+
+  s_lastSeq = 0U;
+  s_lastStatSeq = 0U;
+  s_statTick = HAL_GetTick();
+  s_lastResyncTick = s_statTick;
+  s_streaming = 1U;
+  g_camStage = 9U;
+  AppUart_Printf("[cam] preview started, %ux%u chunk=%lu words x %lu\r\n",
+                 (unsigned)CAM_IMG_W,
+                 (unsigned)CAM_IMG_H,
+                 (unsigned long)CAM_CHUNK_WORDS,
+                 (unsigned long)CAM_CHUNKS_PER_FRAME);
+  return 0U;
+}
+
+void AppCamera_FreezePreview(void)
+{
+  if (s_streaming == 0U)
+  {
+    return;
+  }
+
+  NVIC_DisableIRQ(DMA2_Stream1_IRQn);
+  NVIC_DisableIRQ(DCMI_IRQn);
+  cam_stream_stop();
+  NVIC_ClearPendingIRQ(DMA2_Stream1_IRQn);
+  NVIC_ClearPendingIRQ(DCMI_IRQn);
+  s_streaming = 0U;
+
+  /* 用户可能在首帧刚发布、任务尚未打开图层时点击拍照。这里补一次图层
+   * 配置，保证冻结的是最后一张完整帧而不是继续显示空白占位。 */
+  if ((s_layerOn == 0U) && ((s_pubPacket >> 2U) != 0U))
+  {
+    cam_layer_config(cam_fb_addr((uint8_t)(s_pubPacket & 0x03U)));
+    s_layerOn = 1U;
+  }
+
+  AppUart_Printf("[cam] preview frozen at frame=%lu\r\n",
+                 (unsigned long)(s_pubPacket >> 2U));
+}
+
+void AppCamera_StopPreview(void)
+{
+  AppCamera_FreezePreview();
+  cam_layer_disable();
+  AppUart_Printf("[cam] preview stopped\r\n");
 }
 
 /* OVR/ERR 只读标志计数，不开中断 */
@@ -883,7 +947,7 @@ void AppCamera_PollFrame(void)
   uint32_t packet;
   uint32_t now;
 
-  if (s_camReady == 0U)
+  if ((s_camReady == 0U) || (s_streaming == 0U))
   {
     return;
   }
@@ -909,14 +973,14 @@ void AppCamera_PollFrame(void)
   }
 
   packet = s_pubPacket;
-  if ((packet >> 2) != s_lastSeq)
+  if ((packet >> 2U) != s_lastSeq)
   {
-    s_lastSeq = packet >> 2;
+    s_lastSeq = packet >> 2U;
 
     if (s_layerOn == 0U)
     {
       /* 首帧写满后才使能图层，避免启动瞬间逐行填图；
-       * 之后的换帧由 DMA 块中断在帧完成时直接切换 CFBAR */
+       * 之后的换帧由 DMA 块中断在帧完成时直接切换 CFBAR。 */
       cam_layer_config(cam_fb_addr((uint8_t)(packet & 0x03U)));
       s_layerOn = 1U;
     }
@@ -966,4 +1030,5 @@ void AppCamera_GetStats(AppCameraStats_t *stats)
   stats->dmaerr = s_dmaErrCnt;
   stats->desync = s_desyncCnt;
   stats->ready = s_camReady;
+  stats->streaming = s_streaming;
 }

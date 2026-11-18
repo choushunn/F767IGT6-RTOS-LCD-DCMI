@@ -6,9 +6,11 @@
 #include "ltdc.h"   /* hltdc */
 #include "display_config.h"
 
-/* ATK-7016 7 寸 RGB 屏：1024x600，RGB565。运行区域为左侧 424x600。 */
-#define LV_PORT_DISP_HOR_RES   DISPLAY_LVGL_W
-#define LV_PORT_DISP_VER_RES   DISPLAY_LVGL_H
+/* ATK-7016 7 寸 RGB 屏：原生 1024x600，RGB565；逻辑竖屏 600x1024。
+ * 实机装配方向与顺时针 90° 相反，因此使用 270°。 */
+#define LV_PORT_DISP_PHYS_W    DISPLAY_PANEL_W
+#define LV_PORT_DISP_PHYS_H    DISPLAY_PANEL_H
+#define LV_PORT_DISP_ROTATION  LV_DISPLAY_ROTATION_270
 
 /* 帧缓冲位于外部 SDRAM（FMC Bank1 基址），与 LTDC 图层 0 使用同一地址。
  * 按 1024x600 上限预留 1228800B（相机缓冲从 0xC0140000 起，互不重叠） */
@@ -68,16 +70,16 @@ static void lv_port_disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
 {
   uint32_t width;
   uint32_t height;
-  uint32_t screen_width;
   uint32_t bytes;
   uint32_t dst;
+  uint32_t src_stride;
+  uint32_t dst_stride;
+  lv_area_t rotated_area;
+  lv_display_rotation_t rotation;
 
   width = (uint32_t)(area->x2 - area->x1 + 1);
   height = (uint32_t)(area->y2 - area->y1 + 1);
-  screen_width = (uint32_t)lv_display_get_horizontal_resolution(disp);
   bytes = width * height * 2U;
-  dst = (uint32_t)LV_PORT_DISP_FB_ADDR +
-        ((((uint32_t)area->y1 * screen_width) + (uint32_t)area->x1) * 2U);
 
   /* DMA2D 不参与 D-Cache 一致性维护：像素是 CPU 刚写进 s_drawBuf 的，
    * 若此时 D-Cache 打开，脏行可能还没写回 SRAM，DMA2D 会读到旧像素。
@@ -85,11 +87,40 @@ static void lv_port_disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
   SCB_CleanDCache_by_Addr((uint32_t *)px_map, (int32_t)bytes);
   __DSB();
 
+  rotation = lv_display_get_rotation(disp);
+  if (rotation != LV_DISPLAY_ROTATION_0)
+  {
+    /* LVGL 局部缓冲先在内部 SRAM 完成竖屏渲染，再按逻辑->物理映射
+     * 旋转写入 SDRAM。DMA2D 不支持 90° 旋转，因此此路径由 CPU 写回。 */
+    rotated_area = *area;
+    lv_display_rotate_area(disp, &rotated_area);
+
+    src_stride = width * 2U;
+    dst_stride = LV_PORT_DISP_PHYS_W * 2U;
+    dst = (uint32_t)LV_PORT_DISP_FB_ADDR +
+          ((((uint32_t)rotated_area.y1 * LV_PORT_DISP_PHYS_W) +
+            (uint32_t)rotated_area.x1) * 2U);
+
+    lv_draw_rotate(px_map,
+                   (void *)dst,
+                   (int32_t)width,
+                   (int32_t)height,
+                   (int32_t)src_stride,
+                   (int32_t)dst_stride,
+                   rotation,
+                   LV_COLOR_FORMAT_RGB565);
+    __DSB();
+    lv_display_flush_ready(disp);
+    return;
+  }
+
+  dst = (uint32_t)LV_PORT_DISP_FB_ADDR +
+        ((((uint32_t)area->y1 * LV_PORT_DISP_PHYS_W) + (uint32_t)area->x1) * 2U);
   lv_port_dma2d_wait();
 
   DMA2D->CR = DMA2D_M2M;
   DMA2D->OPFCCR = DMA2D_OUTPUT_RGB565;
-  DMA2D->OOR = screen_width - width;
+  DMA2D->OOR = LV_PORT_DISP_PHYS_W - width;
   DMA2D->FGOR = 0;
   DMA2D->FGPFCCR = DMA2D_INPUT_RGB565;
   DMA2D->FGMAR = (uint32_t)px_map;
@@ -104,63 +135,46 @@ static void lv_port_disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
   lv_display_flush_ready(disp);
 }
 
-/* 同步 LTDC 图层 0 的窗口/跨度到新的显示尺寸 */
-static void lv_port_disp_ltdc_area(uint16_t w, uint16_t h)
+void lv_port_disp_set_visible_area(int32_t x0,
+                                   int32_t y0,
+                                   int32_t x1,
+                                   int32_t y1)
 {
   LTDC_LayerCfgTypeDef cfg = {0};
-
-  cfg.WindowX0 = 0;
-  cfg.WindowX1 = w;
-  cfg.WindowY0 = 0;
-  cfg.WindowY1 = h;
-  cfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
-  cfg.Alpha = 255;
-  cfg.Alpha0 = 0;
-  cfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
-  cfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
-  cfg.FBStartAdress = (uint32_t)LV_PORT_DISP_FB_ADDR;
-  cfg.ImageWidth = w;
-  cfg.ImageHeight = h;
-
-  (void)HAL_LTDC_ConfigLayer(&hltdc, &cfg, LTDC_LAYER_1);
-  __HAL_LTDC_LAYER_ENABLE(&hltdc, LTDC_LAYER_1);
-  __HAL_LTDC_VERTICAL_BLANKING_RELOAD_CONFIG(&hltdc);
-}
-
-void lv_port_disp_set_area(uint16_t w, uint16_t h)
-{
-  uint16_t oldW;
+  lv_area_t area;
 
   if (s_disp == NULL)
   {
     return;
   }
 
-  oldW = (uint16_t)lv_display_get_horizontal_resolution(s_disp);
+  area.x1 = x0;
+  area.y1 = y0;
+  area.x2 = x1;
+  area.y2 = y1;
+  lv_display_rotate_area(s_disp, &area);
 
-  /* 行跨度（LTDC CFBLR 的 pitch）马上就要变成 w，而帧缓冲里还是按旧跨度
-   * 排布的像素。先把整屏刷黑，避免切换瞬间看到一帧斜着的乱码；
-   * 随后 LVGL 会把新界面整屏重绘。只在缩小时做，启动扩屏时 SDRAM 本来就是黑的。 */
-  if (w < oldW)
-  {
-    lv_port_disp_clear_area(DISPLAY_PANEL_W, DISPLAY_PANEL_H);
-  }
+  cfg.WindowX0 = area.x1;
+  cfg.WindowX1 = area.x2 + 1;
+  cfg.WindowY0 = area.y1;
+  cfg.WindowY1 = area.y2 + 1;
+  cfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
+  cfg.Alpha = 255;
+  cfg.Alpha0 = 0;
+  cfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
+  cfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
+  cfg.FBStartAdress = (uint32_t)LV_PORT_DISP_FB_ADDR;
+  cfg.ImageWidth = LV_PORT_DISP_PHYS_W;
+  cfg.ImageHeight = LV_PORT_DISP_PHYS_H;
 
-  lv_port_disp_ltdc_area(w, h);
-
-  lv_display_set_resolution(s_disp, w, h);
-  lv_display_set_buffers(s_disp,
-                         s_drawBuf,
-                         NULL,
-                         sizeof(s_drawBuf),
-                         LV_DISPLAY_RENDER_MODE_PARTIAL);
-
-  lv_obj_invalidate(lv_screen_active());
+  (void)HAL_LTDC_ConfigLayer(&hltdc, &cfg, LTDC_LAYER_1);
+  __HAL_LTDC_LAYER_ENABLE(&hltdc, LTDC_LAYER_1);
+  __HAL_LTDC_VERTICAL_BLANKING_RELOAD_CONFIG(&hltdc);
 }
 
 void lv_port_disp_init(void)
 {
-  lv_display_t *disp = lv_display_create(LV_PORT_DISP_HOR_RES, LV_PORT_DISP_VER_RES);
+  lv_display_t *disp = lv_display_create(LV_PORT_DISP_PHYS_W, LV_PORT_DISP_PHYS_H);
   if (disp == NULL)
   {
     return;
@@ -169,6 +183,10 @@ void lv_port_disp_init(void)
   s_disp = disp;
 
   lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
+  lv_display_set_rotation(disp, LV_PORT_DISP_ROTATION);
+
+  /* 旋转后的局部区域由 CPU 直接写入，先清掉 SDRAM 中的旧启动画面。 */
+  lv_port_disp_clear_area(LV_PORT_DISP_PHYS_W, LV_PORT_DISP_PHYS_H);
 
   /* 内部 SRAM 局部缓冲：渲染与 LTDC 扫描解耦，减少 FMC 争用。 */
   lv_display_set_buffers(disp,

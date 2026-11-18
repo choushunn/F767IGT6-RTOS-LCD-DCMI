@@ -21,7 +21,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 
 void AppTasks_Init(void)
 {
-  /* 相机在调度器启动前完成上电、配置与采集启动 */
+  /* 相机在调度器启动前完成上电与配置；连续采集由 UI 的预览动作启动 */
   AppCamera_Init();
 
   AppLed_TaskCreate();

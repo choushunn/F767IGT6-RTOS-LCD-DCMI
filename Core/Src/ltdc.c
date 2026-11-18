@@ -59,26 +59,27 @@ void MX_LTDC_Init(void)
       DISPLAY_HSW + DISPLAY_HBP + DISPLAY_PANEL_W + DISPLAY_HFP - 1U;
   hltdc.Init.TotalHeigh =
       DISPLAY_VSW + DISPLAY_VBP + DISPLAY_PANEL_H + DISPLAY_VFP - 1U;
-  hltdc.Init.Backcolor.Blue = 0;
-  hltdc.Init.Backcolor.Green = 0;
-  hltdc.Init.Backcolor.Red = 0;
+  /* 竖屏 UI 图层只覆盖控制区，其余留白和预览占位由 LTDC 背景色填充。 */
+  hltdc.Init.Backcolor.Red = 0x0B;
+  hltdc.Init.Backcolor.Green = 0x0E;
+  hltdc.Init.Backcolor.Blue = 0x11;
   if (HAL_LTDC_Init(&hltdc) != HAL_OK)
   {
     Error_Handler();
   }
-  /* 图层 0 覆盖左侧 424x600（人脸授权界面），右侧交给第二图层的相机画面 */
+  /* UI 设计阶段：竖屏内容旋转写入整块原生 1024x600 帧缓冲。 */
   pLayerCfg.WindowX0 = 0;
-  pLayerCfg.WindowX1 = DISPLAY_LVGL_W;
+  pLayerCfg.WindowX1 = DISPLAY_PANEL_W;
   pLayerCfg.WindowY0 = 0;
-  pLayerCfg.WindowY1 = DISPLAY_LVGL_H;
+  pLayerCfg.WindowY1 = DISPLAY_PANEL_H;
   pLayerCfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
   pLayerCfg.Alpha = 255;
   pLayerCfg.Alpha0 = 0;
   pLayerCfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
   pLayerCfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
   pLayerCfg.FBStartAdress = DISPLAY_FB_ADDR;
-  pLayerCfg.ImageWidth = DISPLAY_LVGL_W;
-  pLayerCfg.ImageHeight = DISPLAY_LVGL_H;
+  pLayerCfg.ImageWidth = DISPLAY_PANEL_W;
+  pLayerCfg.ImageHeight = DISPLAY_PANEL_H;
   pLayerCfg.Backcolor.Blue = 0;
   pLayerCfg.Backcolor.Green = 0;
   pLayerCfg.Backcolor.Red = 0;
@@ -86,7 +87,7 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  /* 第二图层：右侧相机窗口 x 424~1024 / y 0~600，600x600 RGB565。
+  /* 第二图层：保留相机窗口配置，但 UI 设计阶段不使能。
    * 混合因子必须为 PAxCA 且 Alpha0=0，窗口外默认色 alpha=0 才能透出图层 0（CA 模式会盖黑左栏）。
    * 首帧写满前不使能，由 app_camera.c 在首帧完成后打开。 */
   pLayerCfg1.WindowX0 = DISPLAY_CAMERA_X0;

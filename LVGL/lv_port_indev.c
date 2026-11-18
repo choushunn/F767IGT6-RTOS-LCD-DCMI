@@ -14,6 +14,8 @@ static void lv_port_indev_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 
   if (Touch_Scan(&x, &y) != 0U)
   {
+    /* Touch_Scan() 返回原生 1024x600 物理坐标。LVGL v9 输入层会根据
+     * 显示旋转自动转换到 600x1024 逻辑坐标，这里不能再次旋转。 */
     data->state = LV_INDEV_STATE_PRESSED;
     data->point.x = x;
     data->point.y = y;

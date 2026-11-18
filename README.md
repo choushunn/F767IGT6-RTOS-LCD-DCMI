@@ -1,6 +1,6 @@
 # STM32F767IGT6-RTOS-LVGL-LCD-DCMI
 
-STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的人脸授权终端：LTDC 并口 RGB 屏（ATK-7016，1024x600 / RGB565），左侧 424 宽为 LVGL 授权界面（图层 0），右侧为 OV2640 600x600 实时画面（第二图层硬件扫描），并已接入 GT9xxx 电容触摸。
+STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的人脸授权终端：ATK-7016 面板原生为 1024x600 / RGB565，物理竖放后由 LVGL 输出 600x1024 逻辑界面，包含 512x512 预览位、环形验证进度和底部顺序操作；已接入 GT9xxx 电容触摸。
 
 ## 1. 硬件与工具链
 
@@ -8,10 +8,10 @@ STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的人脸授权终端：LTDC 并�
 |------|------|
 | 主控 | STM32F767IGT6（Cortex-M7，216MHz，HSE 25MHz） |
 | 显示 | ATK-7016 7 寸 RGB 屏，1024x600，RGB565，LTDC 像素时钟 51.17MHz（PLLSAI 307/3/2，场频 ≈60Hz） |
-| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB）：LVGL 全屏预留 1024x600x2 = 1.2MB + 相机 3 x 663552B |
-| 摄像头 | OV2640，DCMI 8 位并口 + DMA2_Stream1 NORMAL 逐块续排，每 24 行一块直接写入相机帧缓冲；UXGA 中心裁切后以 600x600 RGB565 1:1 输出 |
+| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB）：LVGL 全屏预留 1024x600x2 = 1.2MB + 相机 3 x 524288B |
+| 摄像头 | OV2640，DCMI 8 位并口 + DMA2_Stream1 NORMAL 逐块续排，每 128 行一块写入相机帧缓冲；UXGA 中心裁切后以 512x512 RGB565 1:1 输出，LTDC 第二图层直接扫描原始帧 |
 | RTOS | FreeRTOS Kernel V11.3.1，`portable/GCC/ARM_CM7/r0p1`，heap_4 |
-| GUI | LVGL v9.6.0（lite），`LV_OS_NONE` 单任务内联渲染，内部 SRAM 局部缓冲 + DMA2D 写显存 |
+| GUI | LVGL v9.6.0（lite），`LV_OS_NONE` 单任务内联渲染；竖屏 270° flush 使用 CPU 旋转写显存，非旋转路径保留 DMA2D |
 | 编译器 | Keil MDK AC6 / armclang（6.24） |
 | 工程 | `MDK-ARM/F767IGT6-RTOS-LVGL-LCD-DCMI.uvprojx` |
 
@@ -45,7 +45,7 @@ App/
   led/app_led.c/.h         LED0（PB1）500ms 翻转任务
   uart/app_uart.c/.h       USART1 调试打印任务 AppUart_Printf()
   touch/touch_detect.c/.h  GT9xxx 电容触摸（软件 I2C）+ LVGL 指针设备接入
-  lvgl/app_lvgl.c/.h       LVGL 任务、启动动画与左侧逐项状态界面（424x600）
+  lvgl/app_lvgl.c/.h       LVGL 任务、竖屏启动动画与六态授权界面（600x1024）
   lvgl/app_font_cn_14.c    子集中文字库（黑体 14px / 4bpp，lv_font_conv 生成）
   lvgl/app_font_cn_24.c    子集标题字库（黑体 24px / 4bpp，lv_font_conv 生成）
   camera/app_camera.c/.h   OV2640 采集、LTDC 第二图层换帧与帧率统计
@@ -64,30 +64,32 @@ Docs/                      移植方案与硬件参考资料
 
 运行现象：
 
-- 上电先显示**全屏安全自检动画**（1024x600，约 0.65s），期间图层 0 临时扩到整屏；加载完成后图层 0 收回左侧 424 宽。
-- LCD 背光点亮（PB5 高电平），左侧 424x600 为逐项人脸授权界面：
-  - 顶部只显示设备编号与在线状态
-  - 中部同一时间只显示“人脸采集 / 身份比对 / 上机授权”中的当前步骤
-  - 底部只保留一个主要动作；设备异常时才显示故障文字
-- 右侧相机窗口为 x 424~1024、y 0~600 的 OV2640 600x600 实时画面，由 LTDC 第二图层直接扫描
-  `0xC0140000`/`0xC0200000`/`0xC02C0000` 三块帧缓冲，首帧写满后才使能图层，换帧在 DMA 块完成中断内完成。
+- 上电先显示**竖屏安全自检动画**（逻辑 600x1024，约 0.65s）。
+- LCD 背光点亮（PB5 高电平），物理竖放后的界面从上到下为：
+  - 等待页顶部为完整 `600x600` 彩条滚动占位区，后续可替换为动态图片广告；
+  - 进入验证后隐藏广告，44px 留白内显示 `512x512` 预览/冻结照片；
+  - 当前状态和 160x160 环形验证进度；
+  - “开始上机 → 开始拍照 → 开始验证”三步位置提示；
+  - 底部单一主按钮；确认抓拍时显示两个等宽同字号的“重拍 / 开始验证”按钮，验证中禁用主按钮，设备异常时才显示故障文字。
+- 待机时不采集、不显示相机。点击“开始上机”才启动 OV2640 512x512 预览；点击“开始拍照”冻结最后完整帧并停止 DCMI/DMA；结束或重新验证时关闭相机图层。
 - LED0（DS0 / PB1）以 500ms 周期闪烁（LED 低电平点亮）。
-- 触摸屏（GT9xxx，软件 I2C，SCL=PH6 / SDA=PI3 / RST=PI8 / INT=PH7）探测成功后可操作左栏开关。
+- 触摸屏（GT9xxx，软件 I2C，SCL=PH6 / SDA=PI3 / RST=PI8 / INT=PH7）探测成功后可操作底部顺序按钮。
 - USART1（PA9/PA10，115200 8N1）输出：
-  - `[LVGL] face-auth UI ready, 424x600, free heap = ...`
-  - `[cam] ov2640 id ok`、`[cam] sensor out=600x600 crop=600x600 offset=500,300`、`[cam] capture started, chunk=7200 words x 25 per frame`、`[cam] init done`
+  - `[LVGL] portrait face-auth UI ready, 600x1024`
+  - `[cam] ov2640 id ok`、`[cam] sensor out=512x512 crop=512x512 offset=544,344`、`[cam] ready for preview, chunk=32768 words x 4 per frame`、`[cam] init done`
+  - 点击“开始上机”后出现 `[cam] preview started, 512x512 chunk=32768 words x 4`
   - 每 2s 一条 `[cam] fps=.. pub=.. vsync=.. desync=.. esync=.. eovr=.. dmaerr=.. fu=.. terr=..`
 
 ## 5. 关键配置
 
 - **MPU**：FMC 数据区 `0x60000000`（64MB）全访问；SDRAM `0xC0000000`（32MB）全访问且**非缓存、可共享**，保证 CPU 与 LTDC/DMA2D 数据一致。FMC/QSPI 寄存器区（`0xA0000000`）走默认 Device 映射，切勿配置为无访问权限，否则 `MX_FMC_Init()` 会触发 MemManage 异常。
 - **SDRAM 上电序列**：`HAL_SDRAM_Init()` 只配置控制器，`Core/Src/fmc.c` 的 `USER CODE 2` 区补齐 CLK_ENABLE → PALL → 8 次 AUTOREFRESH → LOAD_MODE(`0x230`) → 刷新计数 824（SDCLK 108MHz）。SDRAM 写恢复时间使用与正点原子同板参考一致的 `WriteRecoveryTime=2`；该序列必须先于 `MX_LTDC_Init()`。
-- **LTDC**：时序 1024x600（HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12），当前像素时钟 51.17MHz（1344x635 总时序 → ≈60Hz，符合正点原子 ATK-7016 的 51.2MHz 规格）；图层 0 窗口 0~424（RGB565，帧缓冲 `0xC0000000`），第二图层窗口 x 424~1024 / y 0~600 显示相机，混合因子必须 `PAxCA` + `Alpha0=0`，否则左侧会被盖黑。
-- **行宽与带宽**：UI 行跨度为 424×2=848B，相机行跨度为 600×2=1200B。两者均满足 DMA 16B 对齐，但不再满足 64B 行宽对齐；实机需重点观察 `fu/terr` 是否持续增长。
-- **相机采集**：一帧 600×600 拆成 25 块（每块 24 行 = 7200 个 32 位字，NDTR 16 位上限内），DMA 使用 NORMAL 模式、FIFO Full 和内存 INCR4；每个块完成中断只重装 `M0AR/NDTR` 并重新使能 DMA，不重新配置 DCMI。
+- **LTDC**：时序 1024x600（HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12），当前像素时钟 51.17MHz（1344x635 总时序 → ≈60Hz）。图层 0 覆盖整块原生 1024x600 帧缓冲；第二图层仅在预览状态使能，物理窗口 `x=468..980, y=44..556`。
+- **竖屏旋转**：LVGL 原生显示仍为 1024x600，配置 `LV_DISPLAY_ROTATION_270` 后逻辑分辨率为 600x1024。flush 使用 `lv_display_rotate_area()` + `lv_draw_rotate()` 写入物理帧缓冲；触摸驱动上报原始 1024x600 坐标，由 LVGL 输入层自动转换。
+- **相机采集**：一帧 512×512 拆成 4 块（每块 128 行 = 32768 个 32 位字，NDTR 16 位上限内），DMA 使用 NORMAL 模式、FIFO Full 和内存 INCR4；每个块完成中断只重装 `M0AR/NDTR` 并重新使能 DMA。
 - **相机换帧**：三缓冲 + 在 DMA 块完成中断内写 `CFBAR` 并置 `LTDC_SRCR_VBR`；双缓冲或任务轮询都会撕裂。帧结束中断只做帧计数与帧对齐校验（错位/OVR 时带 1s 冷却重排）。
 - **FreeRTOS 中断桥接**：`Core/Src/stm32f7xx_it.c` 中 SVC→`vPortSVCHandler`、PendSV→`xPortPendSVHandler`、SysTick→`xPortSysTickHandler`，三者缺一任务即无法切换。
-- **DMA2D**：`MX_DMA2D_Init()` 已按 RGB565 配置；当前由 `lv_port_disp_flush_cb()` 直接使用 DMA2D 做 SRAM→SDRAM 区域拷贝（拷贝前 `SCB_CleanDCache_by_Addr()` 清源缓冲的 D-Cache 行，为将来开启 Cache 留出正确性）。`NLR` 必须按 `[29:16]=每行像素数、[15:0]=行数` 配置；LVGL 的 `LV_USE_DRAW_DMA2D` draw unit 仍为 0，避免两套 DMA2D 调度叠加。
+- **DMA2D**：`MX_DMA2D_Init()` 已按 RGB565 配置。零旋转路径继续使用 DMA2D 做 SRAM→SDRAM 区域拷贝；当前 270° 竖屏路径由 CPU 直接旋转写 SDRAM，因为 DMA2D 不支持旋转。LVGL 的 `LV_USE_DRAW_DMA2D` draw unit 仍为 0，避免两套 DMA2D 调度叠加。
 
 ## 6. 后续阶段
 
