@@ -3,6 +3,7 @@
 #include "touch_pins.h"
 
 #include "main.h"
+#include "display_config.h"
 
 /* GT9xxx 寄存器与地址 */
 #define GT9XXX_ADDR_A          0x14U   /* INT 为高时的地址 */
@@ -14,8 +15,8 @@
 #define GT9XXX_REG_POINT1      0x8150U /* 第 1 触点坐标 */
 
 /* 面板分辨率（与 LVGL/LTDC 一致） */
-#define TOUCH_PANEL_W          800U
-#define TOUCH_PANEL_H          480U
+#define TOUCH_PANEL_W          DISPLAY_PANEL_W
+#define TOUCH_PANEL_H          DISPLAY_PANEL_H
 
 static uint8_t s_touchOk = 0U;
 static uint8_t s_touchAddr = GT9XXX_ADDR_B;
@@ -333,7 +334,7 @@ uint8_t Touch_Scan(uint16_t *x, uint16_t *y)
       uint16_t rawX = (uint16_t)(((uint16_t)buf[1] << 8U) | (uint16_t)buf[0]);
       uint16_t rawY = (uint16_t)(((uint16_t)buf[3] << 8U) | (uint16_t)buf[2]);
 
-      /* 面板坐标与 800x480 横屏显示同向，直接透传并钳位 */
+      /* 面板坐标与 1024x600 横屏显示同向，直接透传并钳位 */
       *x = (rawX < TOUCH_PANEL_W) ? rawX : (TOUCH_PANEL_W - 1U);
       *y = (rawY < TOUCH_PANEL_H) ? rawY : (TOUCH_PANEL_H - 1U);
 

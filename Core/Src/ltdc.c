@@ -22,6 +22,7 @@
 
 /* USER CODE BEGIN 0 */
 #include "camera/app_camera.h" /* CAM_FB0_ADDR / CAM_IMG_W / CAM_IMG_H */
+#include "display_config.h"
 /* USER CODE END 0 */
 
 LTDC_HandleTypeDef hltdc;
@@ -45,15 +46,19 @@ void MX_LTDC_Init(void)
   hltdc.Init.VSPolarity = LTDC_VSPOLARITY_AL;
   hltdc.Init.DEPolarity = LTDC_DEPOLARITY_AL;
   hltdc.Init.PCPolarity = LTDC_PCPOLARITY_IPC;
-  /* ATK-7084 7 寸 RGB 屏：800x480，HSW=1/HBP=46/HFP=210，VSW=1/VBP=23/VFP=22 */
-  hltdc.Init.HorizontalSync = 0;
-  hltdc.Init.VerticalSync = 0;
-  hltdc.Init.AccumulatedHBP = 46;
-  hltdc.Init.AccumulatedVBP = 23;
-  hltdc.Init.AccumulatedActiveW = 846;
-  hltdc.Init.AccumulatedActiveH = 503;
-  hltdc.Init.TotalWidth = 1056;
-  hltdc.Init.TotalHeigh = 525;
+  /* ATK-7016 7 寸 RGB 屏：1024x600，HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12 */
+  hltdc.Init.HorizontalSync = DISPLAY_HSW - 1U;
+  hltdc.Init.VerticalSync = DISPLAY_VSW - 1U;
+  hltdc.Init.AccumulatedHBP = DISPLAY_HSW + DISPLAY_HBP - 1U;
+  hltdc.Init.AccumulatedVBP = DISPLAY_VSW + DISPLAY_VBP - 1U;
+  hltdc.Init.AccumulatedActiveW =
+      DISPLAY_HSW + DISPLAY_HBP + DISPLAY_PANEL_W - 1U;
+  hltdc.Init.AccumulatedActiveH =
+      DISPLAY_VSW + DISPLAY_VBP + DISPLAY_PANEL_H - 1U;
+  hltdc.Init.TotalWidth =
+      DISPLAY_HSW + DISPLAY_HBP + DISPLAY_PANEL_W + DISPLAY_HFP - 1U;
+  hltdc.Init.TotalHeigh =
+      DISPLAY_VSW + DISPLAY_VBP + DISPLAY_PANEL_H + DISPLAY_VFP - 1U;
   hltdc.Init.Backcolor.Blue = 0;
   hltdc.Init.Backcolor.Green = 0;
   hltdc.Init.Backcolor.Red = 0;
@@ -61,19 +66,19 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  /* 图层 0 只覆盖左栏 0~320（LVGL 状态面板），右栏交给图层 2 的相机画面 */
+  /* 图层 0 覆盖左侧 544x600（LVGL 状态面板），右侧交给图层 2 的相机画面 */
   pLayerCfg.WindowX0 = 0;
-  pLayerCfg.WindowX1 = 320;
+  pLayerCfg.WindowX1 = DISPLAY_LVGL_W;
   pLayerCfg.WindowY0 = 0;
-  pLayerCfg.WindowY1 = 480;
+  pLayerCfg.WindowY1 = DISPLAY_LVGL_H;
   pLayerCfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
   pLayerCfg.Alpha = 255;
   pLayerCfg.Alpha0 = 0;
   pLayerCfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA;
   pLayerCfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA;
-  pLayerCfg.FBStartAdress = 0xC0000000;
-  pLayerCfg.ImageWidth = 320;
-  pLayerCfg.ImageHeight = 480;
+  pLayerCfg.FBStartAdress = DISPLAY_FB_ADDR;
+  pLayerCfg.ImageWidth = DISPLAY_LVGL_W;
+  pLayerCfg.ImageHeight = DISPLAY_LVGL_H;
   pLayerCfg.Backcolor.Blue = 0;
   pLayerCfg.Backcolor.Green = 0;
   pLayerCfg.Backcolor.Red = 0;
@@ -81,13 +86,13 @@ void MX_LTDC_Init(void)
   {
     Error_Handler();
   }
-  /* 第二图层：右侧相机窗口 x 320~800 / y 0~480，480x480 RGB565。
+  /* 第二图层：右侧相机窗口 x 544~1024 / y 60~540，480x480 RGB565。
    * 混合因子必须为 PAxCA 且 Alpha0=0，窗口外默认色 alpha=0 才能透出图层 0（CA 模式会盖黑左栏）。
    * 首帧写满前不使能，由 app_camera.c 在首帧完成后打开。 */
-  pLayerCfg1.WindowX0 = 320;
-  pLayerCfg1.WindowX1 = 800;
-  pLayerCfg1.WindowY0 = 0;
-  pLayerCfg1.WindowY1 = 480;
+  pLayerCfg1.WindowX0 = DISPLAY_CAMERA_X0;
+  pLayerCfg1.WindowX1 = DISPLAY_CAMERA_X1;
+  pLayerCfg1.WindowY0 = DISPLAY_CAMERA_Y0;
+  pLayerCfg1.WindowY1 = DISPLAY_CAMERA_Y1;
   pLayerCfg1.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
   pLayerCfg1.Alpha = 255;
   pLayerCfg1.Alpha0 = 0;
@@ -126,9 +131,9 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* ltdcHandle)
   /** Initializes the peripherals clock
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LTDC;
-    /* 像素时钟 33MHz：25MHz/25 * 396 / 3 / 4 */
-    PeriphClkInitStruct.PLLSAI.PLLSAIN = 396;
-    PeriphClkInitStruct.PLLSAI.PLLSAIR = 3;
+    /* 像素时钟 45MHz：25MHz/25 * 360 / 2 / 4 */
+    PeriphClkInitStruct.PLLSAI.PLLSAIN = 360;
+    PeriphClkInitStruct.PLLSAI.PLLSAIR = 2;
     PeriphClkInitStruct.PLLSAI.PLLSAIQ = 2;
     PeriphClkInitStruct.PLLSAI.PLLSAIP = RCC_PLLSAIP_DIV2;
     PeriphClkInitStruct.PLLSAIDivQ = 1;

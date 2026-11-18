@@ -3,14 +3,15 @@
 #include "lvgl.h"
 
 #include "ltdc.h"   /* hltdc */
+#include "display_config.h"
 
-/* ATK-7084 7 寸 RGB 屏：800x480，RGB565 */
-#define LV_PORT_DISP_HOR_RES   320
-#define LV_PORT_DISP_VER_RES   480
+/* ATK-7016 7 寸 RGB 屏：1024x600，RGB565。初始区域为左侧 544x600。 */
+#define LV_PORT_DISP_HOR_RES   DISPLAY_LVGL_W
+#define LV_PORT_DISP_VER_RES   DISPLAY_LVGL_H
 
 /* 帧缓冲位于外部 SDRAM（FMC Bank1 基址），与 LTDC 图层 0 使用同一地址。
- * 按 800x480 上限预留 768000B（相机缓冲从 0xC0100000 起，互不重叠） */
-#define LV_PORT_DISP_FB_ADDR   ( (void *)0xC0000000UL )
+ * 按 1024x600 上限预留 1228800B（相机缓冲从 0xC0140000 起，互不重叠） */
+#define LV_PORT_DISP_FB_ADDR   ( (void *)DISPLAY_FB_ADDR )
 
 static lv_display_t *s_disp = NULL;
 

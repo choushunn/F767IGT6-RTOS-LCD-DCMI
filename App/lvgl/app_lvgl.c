@@ -3,6 +3,7 @@
 #include "app_config.h"
 #include "camera/app_camera.h"
 #include "camera/pcf8574.h"
+#include "display_config.h"
 #include "touch/touch_detect.h"
 #include "uart/app_uart.h"
 
@@ -18,14 +19,15 @@
 /* 子集中文字库（黑体 14px，4bpp，含 ASCII 与界面用到的汉字，约 40KB） */
 LV_FONT_DECLARE(app_font_cn_14);
 
-/* ATK-7084 7 寸屏：800x480。左栏 0~320 为 LVGL 状态面板（图层 0），
- * 右栏 320~800 由 LTDC 图层 2 硬件扫描相机画面；LVGL 分辨率即为 320x480，
+/* ATK-7016 7 寸屏：1024x600。左侧 0~544 为 LVGL 状态面板（图层 0），
+ * 右侧 544~1024 由 LTDC 图层 2 硬件扫描相机画面；LVGL 分辨率为 544x600，
  * 不渲染右栏，可把图层 0 的 SDRAM 带宽压到原来的一半以下 */
-#define APP_UI_HOR_RES    320
-#define APP_UI_VER_RES    480
-#define APP_UI_LEFT_W     320
+#define APP_UI_HOR_RES    DISPLAY_LVGL_W
+#define APP_UI_VER_RES    DISPLAY_LVGL_H
+#define APP_UI_LEFT_W     DISPLAY_LVGL_W
 #define APP_UI_CONTENT_W  (APP_UI_LEFT_W - 32)
-#define APP_UI_FULL_W     800   /* 加载动画期间临时占用整屏 */
+#define APP_UI_FULL_W     DISPLAY_PANEL_W
+#define APP_UI_FULL_H     DISPLAY_PANEL_H
 
 #define UI_COLOR_BG       0x0E1621
 #define UI_COLOR_PANEL    0x1B2430
@@ -216,7 +218,7 @@ static void splash_timer_cb(lv_timer_t *timer)
       s_splashRoot = NULL;
     }
 
-    /* 加载结束：图层 0 收回左栏 320 宽，再构建状态面板 */
+    /* 加载结束：图层 0 收回左栏 544 宽，再构建状态面板 */
     lv_port_disp_set_area(APP_UI_LEFT_W, APP_UI_VER_RES);
     app_lvgl_ui_create();
   }
@@ -226,8 +228,8 @@ static void app_lvgl_splash_create(void)
 {
   lv_obj_t *scr;
 
-  /* 加载动画占满整屏：图层 0 临时扩到 800x480（相机图层此时尚未使能） */
-  lv_port_disp_set_area(APP_UI_FULL_W, APP_UI_VER_RES);
+  /* 加载动画占满整屏：图层 0 临时扩到 1024x600（相机图层此时尚未使能） */
+  lv_port_disp_set_area(APP_UI_FULL_W, APP_UI_FULL_H);
 
   scr = lv_screen_active();
 
@@ -236,7 +238,7 @@ static void app_lvgl_splash_create(void)
   lv_obj_set_style_pad_all(scr, 0, 0);
 
   s_splashRoot = lv_obj_create(scr);
-  lv_obj_set_size(s_splashRoot, APP_UI_FULL_W, APP_UI_VER_RES);
+  lv_obj_set_size(s_splashRoot, APP_UI_FULL_W, APP_UI_FULL_H);
   lv_obj_set_style_bg_opa(s_splashRoot, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(s_splashRoot, 0, 0);
   lv_obj_set_style_pad_all(s_splashRoot, 0, 0);
@@ -343,7 +345,7 @@ static void app_lvgl_ui_create(void)
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_all(scr, 0, 0);
 
-  /* 整个 LVGL 屏幕（320x480）就是左侧状态面板 */
+  /* 整个 LVGL 屏幕（544x600）就是左侧状态面板 */
   lv_obj_t *left = create_panel(scr, APP_UI_LEFT_W, APP_UI_VER_RES);
   lv_obj_set_style_radius(left, 0, 0);
 

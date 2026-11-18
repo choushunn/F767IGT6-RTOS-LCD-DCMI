@@ -31,6 +31,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "app_tasks.h"
+#include "display_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -110,12 +111,12 @@ int main(void)
 
   /* 清屏：SDRAM 上电/复位后内容不确定，而 LTDC 已在扫描 0xC0000000，
    * 若直接点背光会看到上一次运行的残留画面。先把 LVGL 图层 0 的
-   * 800x480x2B 帧缓冲刷成黑色，再打开背光 */
+   * 1024x600x2B 帧缓冲刷成黑色，再打开背光 */
   {
-    uint32_t *fb = (uint32_t *)0xC0000000UL;
+    uint32_t *fb = (uint32_t *)DISPLAY_FB_ADDR;
     uint32_t i;
 
-    for (i = 0U; i < (800U * 480U / 2U); i++)
+    for (i = 0U; i < (DISPLAY_FB_BYTES / 4U); i++)
     {
       fb[i] = 0x00000000U;
     }

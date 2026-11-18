@@ -1,14 +1,14 @@
 # STM32F767IGT6-RTOS-LVGL-LCD-DCMI
 
-STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的显示框架：LTDC 并口 RGB 屏（ATK-7084，800x480 / RGB565），帧缓冲置于外部 SDRAM。画面分左右两栏——左栏 320 宽为 LVGL 状态面板（图层 0），右栏 480 宽为 OV5640 实时预览（图层 2 硬件扫描），并已接入 GT9xxx 电容触摸。
+STM32F767IGT6 上基于 **FreeRTOS + LVGL v9** 的显示框架：LTDC 并口 RGB 屏（ATK-7016，1024x600 / RGB565），帧缓冲置于外部 SDRAM。画面分左右两栏——左栏 544 宽为 LVGL 状态面板（图层 0），右侧为 OV5640 实时预览（图层 2 硬件扫描，480x480 垂直居中），并已接入 GT9xxx 电容触摸。
 
 ## 1. 硬件与工具链
 
 | 项目 | 说明 |
 |------|------|
 | 主控 | STM32F767IGT6（Cortex-M7，216MHz，HSE 25MHz） |
-| 显示 | ATK-7084 7 寸 RGB 屏，800x480，RGB565，LTDC 像素时钟 33MHz（PLLSAI 396/3/4） |
-| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB）：LVGL 320x480x2 = 300KB + 相机 3 x 460800B |
+| 显示 | ATK-7016 7 寸 RGB 屏，1024x600，RGB565，LTDC 像素时钟 45MHz（PLLSAI 360/2/4） |
+| 帧缓冲 | 外部 SDRAM（FMC Bank1，基址 `0xC0000000`，32MB）：LVGL 全屏预留 1024x600x2 = 1.2MB + 相机 3 x 460800B |
 | 摄像头 | OV5640，DCMI 8 位并口 + DMA2_Stream1 按行双缓冲，480x480 RGB565，实测 15fps |
 | RTOS | FreeRTOS Kernel V11.3.1，`portable/GCC/ARM_CM7/r0p1`，heap_4 |
 | GUI | LVGL v9.6.0（lite），`LV_OS_NONE` 单任务内联渲染，DIRECT 单缓冲 |
@@ -39,12 +39,13 @@ LVGL/
   lv_port_disp.c/.h        LTDC + SDRAM 帧缓冲显示移植层（DIRECT）
   lv_port_indev.c/.h       指针型输入设备（GT9xxx 触摸）
 App/
+  display_config.h         1024x600 面板、LTDC 时序、LVGL/相机窗口与帧缓冲地址集中配置
   app_config.h             任务优先级/栈/周期集中配置
   app_tasks.c/.h           统一任务创建入口 AppTasks_Init()
   led/app_led.c/.h         LED0（PB1）500ms 翻转任务
   uart/app_uart.c/.h       USART1 调试打印任务 AppUart_Printf()
   touch/touch_detect.c/.h  GT9xxx 电容触摸（软件 I2C）+ LVGL 指针设备接入
-  lvgl/app_lvgl.c/.h       LVGL 任务、启动动画与左侧状态面板（320x480）
+  lvgl/app_lvgl.c/.h       LVGL 任务、启动动画与左侧状态面板（544x600）
   lvgl/app_font_cn_14.c    子集中文字库（黑体 14px / 4bpp，约 40KB，lv_font_conv 生成）
   camera/app_camera.c/.h   OV5640 采集、LTDC 第二图层换帧与帧率统计
   camera/ov5640.c/.h       OV5640 寄存器驱动（含 ov5640cfg.h 官方寄存器表）
@@ -62,17 +63,17 @@ Docs/                      移植方案与硬件参考资料
 
 运行现象：
 
-- 上电先显示**全屏启动动画**（800x480：系统启动 + 进度条 + 阶段文案，约 0.65s），期间图层 0 临时扩到整屏；加载完成后图层 0 收回左栏 320 宽。
-- LCD 背光点亮（PB5 高电平），左栏 320x480 为 LVGL 状态面板：
+- 上电先显示**全屏启动动画**（1024x600：系统启动 + 进度条 + 阶段文案，约 0.65s），期间图层 0 临时扩到整屏；加载完成后图层 0 收回左栏 544 宽。
+- LCD 背光点亮（PB5 高电平），左栏 544x600 为 LVGL 状态面板：
   - 相机：帧率、累计帧数、错误计数（同步/溢出/DMA）、采集状态
   - 系统：运行时间、FreeRTOS 剩余堆、LVGL 内存池、触摸芯片状态
   - 板载：LED0 闪烁指示灯、LED1 触摸开关、蜂鸣器（PCF8574 P0）触摸开关
-- 右栏（x 320~800）为 OV5640 实时画面（480x480 RGB565），由 LTDC 第二图层直接扫描
-  `0xC0100000`/`0xC0180000`/`0xC0200000` 三块帧缓冲，首帧写满后才使能图层，换帧在 DMA 行中断内完成。
+- 右侧（x 544~1024、y 60~540）为 OV5640 实时画面（480x480 RGB565），由 LTDC 第二图层直接扫描
+  `0xC0140000`/`0xC01C0000`/`0xC0240000` 三块帧缓冲，首帧写满后才使能图层，换帧在 DMA 行中断内完成。
 - LED0（DS0 / PB1）以 500ms 周期闪烁（LED 低电平点亮）。
 - 触摸屏（GT9xxx，软件 I2C，SCL=PH6 / SDA=PI3 / RST=PI8 / INT=PH7）探测成功后可操作左栏开关。
 - USART1（PA9/PA10，115200 8N1）输出：
-  - `[LVGL] init done, 320x480, free heap = ...`
+  - `[LVGL] init done, 544x600, free heap = ...`
   - `[cam] ov5640 id ok`、`[cam] sensor out=480x480 hts=... vts=...`、`[cam] capture started`、`[cam] init done`
   - 每 2s 一条 `[cam] fps=.. pub=.. vsync=.. esync=.. eovr=.. dmaerr=.. fu=.. terr=..`
 
@@ -80,8 +81,8 @@ Docs/                      移植方案与硬件参考资料
 
 - **MPU**：FMC 数据区 `0x60000000`（64MB）全访问；SDRAM `0xC0000000`（32MB）全访问且**非缓存、可共享**，保证 CPU 与 LTDC/DMA2D 数据一致。FMC/QSPI 寄存器区（`0xA0000000`）走默认 Device 映射，切勿配置为无访问权限，否则 `MX_FMC_Init()` 会触发 MemManage 异常。
 - **SDRAM 上电序列**：`HAL_SDRAM_Init()` 只配置控制器，`Core/Src/fmc.c` 的 `USER CODE 2` 区补齐 CLK_ENABLE → PALL → 8 次 AUTOREFRESH → LOAD_MODE(`0x230`) → 刷新计数 824（SDCLK 108MHz）。该序列必须先于 `MX_LTDC_Init()`。
-- **LTDC**：时序 800x480（HSW=1/HBP=46/HFP=210，VSW=1/VBP=23/VFP=22），像素时钟 33MHz；图层 0 窗口 0~320（RGB565，帧缓冲 `0xC0000000`），图层 2 窗口 320~800 显示相机，混合因子必须 `PAxCA` + `Alpha0=0`，否则左栏会被盖黑。
-- **相机换帧**：三缓冲 + 在 DMA 行中断内写 `CFBAR` 并置 `LTDC_SRCR_VBR`；双缓冲或任务轮询都会撕裂。LVGL 只渲染 320 宽，避免两图层 + DMA 压满 SDRAM 带宽（`fu` 计数增长即为带宽不足）。
+- **LTDC**：时序 1024x600（HSW=20/HBP=140/HFP=160，VSW=3/VBP=20/VFP=12），像素时钟 45MHz；图层 0 窗口 0~544（RGB565，帧缓冲 `0xC0000000`），图层 2 窗口 x 544~1024 / y 60~540 显示相机，混合因子必须 `PAxCA` + `Alpha0=0`，否则左栏会被盖黑。
+- **相机换帧**：三缓冲 + 在 DMA 行中断内写 `CFBAR` 并置 `LTDC_SRCR_VBR`；双缓冲或任务轮询都会撕裂。LVGL 只渲染 544 宽，控制两图层与 DMA 同时访问 SDRAM 的带宽（`fu` 计数增长即为带宽不足）。
 - **FreeRTOS 中断桥接**：`Core/Src/stm32f7xx_it.c` 中 SVC→`vPortSVCHandler`、PendSV→`xPortPendSVHandler`、SysTick→`xPortSysTickHandler`，三者缺一任务即无法切换。
 - **DMA2D**：`MX_DMA2D_Init()` 已按 RGB565 配置；LVGL 侧 `LV_USE_DRAW_DMA2D` 当前为 0，确认显示链路正常后可置 1 并重新编译。
 

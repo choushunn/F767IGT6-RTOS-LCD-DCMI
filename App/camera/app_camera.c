@@ -335,10 +335,10 @@ static void cam_layer_config(uint32_t fbAddr)
 {
   LTDC_LayerCfgTypeDef cfg = {0};
 
-  cfg.WindowX0 = 320U;
-  cfg.WindowX1 = 800U;
-  cfg.WindowY0 = 0U;
-  cfg.WindowY1 = 480U;
+  cfg.WindowX0 = DISPLAY_CAMERA_X0;
+  cfg.WindowX1 = DISPLAY_CAMERA_X1;
+  cfg.WindowY0 = DISPLAY_CAMERA_Y0;
+  cfg.WindowY1 = DISPLAY_CAMERA_Y1;
   cfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
   cfg.Alpha = 255U;
   cfg.Alpha0 = 0U;
